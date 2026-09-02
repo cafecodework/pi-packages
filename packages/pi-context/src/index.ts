@@ -13,10 +13,13 @@ type ContextData = {
   limit: number;
   percent: number | null;
   systemPrompt: number;
+  systemTools: number;
+  skills: number;
+  contextFiles: number;
   rows: Row[];
 };
 type Segment = { name: string; tokens: number; color: Color; symbol: string };
-type Color = "cyan" | "green" | "yellow" | "gray" | "dim" | "white";
+type Color = "cyan" | "green" | "yellow" | "magenta" | "blue" | "gray" | "dim" | "white";
 
 const WIDGET_ID = "cafecodework-pi-context";
 const GRID_COLUMNS = 10;
@@ -26,6 +29,8 @@ const ANSI: Record<Color, string> = {
   cyan: "\x1b[36m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
+  magenta: "\x1b[35m",
+  blue: "\x1b[34m",
   gray: "\x1b[90m",
   dim: "\x1b[2m",
   white: "\x1b[37m",
@@ -60,15 +65,35 @@ function formatPercent(value: number, total: number): string {
   return `${((value / total) * 100).toFixed(1)}%`;
 }
 
+function contentLength(value: unknown): number {
+  if (typeof value === "string") return value.length;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + contentLength(item), 0);
+  if (value && typeof value === "object") {
+    const item = value as Record<string, unknown>;
+    return [item.content, item.text, item.value, item.description].reduce<number>(
+      (sum, part) => sum + contentLength(part),
+      0,
+    );
+  }
+  return 0;
+}
+
 function addValue(map: Map<string, number>, name: string, value: number): void {
   if (value > 0) map.set(name, (map.get(name) ?? 0) + value);
 }
 
-function collectData(ctx: ExtensionCommandContext): ContextData {
+function collectData(ctx: ExtensionCommandContext, pi: ExtensionAPI): ContextData {
   const usage = ctx.getContextUsage();
   const limit = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+  const options = ctx.getSystemPromptOptions() as Record<string, any>;
+  const contextFiles = Math.ceil(contentLength(options.contextFiles) / 4);
+  const skills = Math.ceil(contentLength(options.skills) / 4);
+  const activeToolNames = pi.getActiveTools();
+  const activeTools = pi.getAllTools().filter((tool) => activeToolNames.includes(tool.name));
+  const systemTools = Math.ceil(JSON.stringify(activeTools).length / 4);
+  const fullSystemPrompt = Math.ceil(ctx.getSystemPrompt().length / 4);
+  const systemPrompt = Math.max(0, fullSystemPrompt - contextFiles - skills - systemTools);
   const counts = new Map<string, number>();
-  const systemPrompt = Math.ceil(ctx.getSystemPrompt().length / 4);
   const context = buildSessionContext(ctx.sessionManager.buildContextEntries());
 
   for (const message of context.messages) {
@@ -113,6 +138,9 @@ function collectData(ctx: ExtensionCommandContext): ContextData {
     limit,
     percent: usage?.percent ?? null,
     systemPrompt,
+    systemTools,
+    skills,
+    contextFiles,
     rows: [...counts.entries()].map(([name, tokens]) => ({ name, tokens })).sort((a, b) => b.tokens - a.tokens),
   };
 }
@@ -125,6 +153,9 @@ function makeSegments(data: ContextData): Segment[] {
 
   const result: Segment[] = [
     { name: "System prompt", tokens: data.systemPrompt, color: "cyan", symbol: "⛁" },
+    { name: "System tools", tokens: data.systemTools, color: "blue", symbol: "⛁" },
+    { name: "Skills", tokens: data.skills, color: "magenta", symbol: "⛁" },
+    { name: "Context files", tokens: data.contextFiles, color: "yellow", symbol: "⛁" },
     { name: "Messages", tokens: messages, color: "green", symbol: "⛁" },
     { name: "Tools", tokens: tools, color: "yellow", symbol: "⛁" },
   ];
@@ -132,7 +163,7 @@ function makeSegments(data: ContextData): Segment[] {
 }
 
 function renderGrid(data: ContextData): string[] {
-  const used = data.used ?? data.systemPrompt + data.rows.reduce((sum, row) => sum + row.tokens, 0);
+  const used = data.used ?? data.systemPrompt + data.systemTools + data.skills + data.contextFiles + data.rows.reduce((sum, row) => sum + row.tokens, 0);
   const usedCells = data.limit > 0 ? Math.min(GRID_CELLS, Math.round((used / data.limit) * GRID_CELLS)) : 0;
   const cells: string[] = [];
   let assigned = 0;
@@ -160,7 +191,7 @@ function renderLines(data: ContextData, modelName?: string): string[] {
   const used = data.used === null ? "?" : formatTokens(data.used);
   const limit = data.limit > 0 ? formatTokens(data.limit) : "?";
   const percent = data.percent === null ? "?" : `${data.percent.toFixed(1)}%`;
-  const estimated = data.systemPrompt + data.rows.reduce((sum, row) => sum + row.tokens, 0);
+  const estimated = data.systemPrompt + data.systemTools + data.skills + data.contextFiles + data.rows.reduce((sum, row) => sum + row.tokens, 0);
   const title = modelName ? `${modelName} · ${used}/${limit} tokens (${percent})` : `${used}/${limit} tokens (${percent})`;
   const segments = makeSegments(data);
   const right = [
@@ -221,7 +252,7 @@ export default function registerPiContext(pi: ExtensionAPI): void {
   pi.registerCommand("context", {
     description: "Show Claude-style context-window usage",
     handler: async (_args, ctx) => {
-      const lines = renderLines(collectData(ctx), ctx.model?.name);
+      const lines = renderLines(collectData(ctx, pi), ctx.model?.name);
       if (!ctx.hasUI) {
         process.stdout.write(`${lines.join("\n")}\n`);
         return;
