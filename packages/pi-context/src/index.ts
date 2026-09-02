@@ -55,6 +55,11 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
+function formatPercent(value: number, total: number): string {
+  if (total <= 0) return "0.0%";
+  return `${((value / total) * 100).toFixed(1)}%`;
+}
+
 function addValue(map: Map<string, number>, name: string, value: number): void {
   if (value > 0) map.set(name, (map.get(name) ?? 0) + value);
 }
@@ -158,12 +163,17 @@ function renderLines(data: ContextData, modelName?: string): string[] {
   const estimated = data.systemPrompt + data.rows.reduce((sum, row) => sum + row.tokens, 0);
   const title = modelName ? `${modelName} · ${used}/${limit} tokens (${percent})` : `${used}/${limit} tokens (${percent})`;
   const segments = makeSegments(data);
-  const right = [bold(title), "", bold("Usage by category"), `${color("cyan", "⛁")} System prompt: ${formatTokens(data.systemPrompt)} tokens`];
+  const right = [
+    bold(title),
+    "",
+    bold("Usage by category"),
+    `${color("cyan", "⛁")} System prompt: ${formatTokens(data.systemPrompt)} tokens (${formatPercent(data.systemPrompt, data.limit)})`,
+  ];
   for (const segment of segments) {
-    right.push(`${color(segment.color, segment.symbol)} ${segment.name}: ${formatTokens(segment.tokens)} tokens`);
+    right.push(`${color(segment.color, segment.symbol)} ${segment.name}: ${formatTokens(segment.tokens)} tokens (${formatPercent(segment.tokens, data.limit)})`);
   }
   const free = Math.max(0, data.limit - (data.used ?? estimated));
-  right.push(`${color("dim", "⛶")} Free space: ${formatTokens(free)} tokens`);
+  right.push(`${color("dim", "⛶")} Free space: ${formatTokens(free)} tokens (${formatPercent(free, data.limit)})`);
 
   const left = renderGrid(data);
   const lines: string[] = [bold("Context Usage"), ""];
@@ -172,7 +182,7 @@ function renderLines(data: ContextData, modelName?: string): string[] {
   }
   lines.push("", bold("Messages"));
   for (const row of data.rows) {
-    lines.push(`  ${row.name.padEnd(18)} ${color("gray", formatTokens(row.tokens).padStart(7))}`);
+    lines.push(`  ${row.name.padEnd(18)} ${color("gray", formatTokens(row.tokens).padStart(7))} (${formatPercent(row.tokens, data.limit)})`);
   }
   lines.push("", color("dim", `Estimated composition: ~${formatTokens(estimated)} tokens`));
   return lines;
