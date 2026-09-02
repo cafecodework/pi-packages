@@ -2,6 +2,8 @@
 
 Pi coding agent 扩展，提供 `/context` 命令。
 
+![pi-context preview](./assets/context-preview.png)
+
 ## 功能
 
 `/context` 会显示：
