@@ -167,7 +167,6 @@ function renderLines(data: ContextData, modelName?: string): string[] {
     bold(title),
     "",
     bold("Usage by category"),
-    `${color("cyan", "⛁")} System prompt: ${formatTokens(data.systemPrompt)} tokens (${formatPercent(data.systemPrompt, data.limit)})`,
   ];
   for (const segment of segments) {
     right.push(`${color(segment.color, segment.symbol)} ${segment.name}: ${formatTokens(segment.tokens)} tokens (${formatPercent(segment.tokens, data.limit)})`);
