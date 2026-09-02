@@ -3,42 +3,64 @@ import {
   estimateTokens,
   type ExtensionAPI,
   type ExtensionCommandContext,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 type Row = { name: string; tokens: number };
-type ContextSnapshot = {
+type ContextData = {
   used: number | null;
   limit: number;
   percent: number | null;
   systemPrompt: number;
   rows: Row[];
 };
+type Segment = { name: string; tokens: number; color: Color; symbol: string };
+type Color = "cyan" | "green" | "yellow" | "gray" | "dim" | "white";
 
-const ENTRY_KIND = "cafecodework:pi-context";
+const WIDGET_ID = "cafecodework-pi-context";
+const GRID_COLUMNS = 10;
+const GRID_ROWS = 10;
+const GRID_CELLS = GRID_COLUMNS * GRID_ROWS;
+const ANSI: Record<Color, string> = {
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  gray: "\x1b[90m",
+  dim: "\x1b[2m",
+  white: "\x1b[37m",
+};
+const RESET = "\x1b[0m";
 
-function compactNumber(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return `${value}`;
+function color(value: Color, text: string): string {
+  return `${ANSI[value]}${text}${RESET}`;
 }
 
-function addCount(map: Map<string, number>, name: string, value: number): void {
+function bold(text: string): string {
+  return `\x1b[1m${text}${RESET}`;
+}
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
+}
+
+function addValue(map: Map<string, number>, name: string, value: number): void {
   if (value > 0) map.set(name, (map.get(name) ?? 0) + value);
 }
 
-function snapshot(ctx: ExtensionCommandContext): ContextSnapshot {
+function collectData(ctx: ExtensionCommandContext): ContextData {
   const usage = ctx.getContextUsage();
   const limit = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
   const counts = new Map<string, number>();
-
   const systemPrompt = Math.ceil(ctx.getSystemPrompt().length / 4);
   const context = buildSessionContext(ctx.sessionManager.buildContextEntries());
 
   for (const message of context.messages) {
     switch (message.role) {
       case "user":
-        addCount(counts, "User messages", estimateTokens(message));
+        addValue(counts, "User messages", estimateTokens(message));
         break;
       case "assistant": {
         let text = 0;
@@ -47,30 +69,28 @@ function snapshot(ctx: ExtensionCommandContext): ContextSnapshot {
         for (const part of message.content) {
           if (part.type === "text") text += part.text.length;
           if (part.type === "thinking") thinking += part.thinking.length;
-          if (part.type === "toolCall") {
-            tools += part.name.length + JSON.stringify(part.arguments).length;
-          }
+          if (part.type === "toolCall") tools += part.name.length + JSON.stringify(part.arguments).length;
         }
-        addCount(counts, "Assistant text", Math.ceil(text / 4));
-        addCount(counts, "Thinking", Math.ceil(thinking / 4));
-        addCount(counts, "Tool calls", Math.ceil(tools / 4));
+        addValue(counts, "Assistant", Math.ceil(text / 4));
+        addValue(counts, "Thinking", Math.ceil(thinking / 4));
+        addValue(counts, "Tool calls", Math.ceil(tools / 4));
         break;
       }
       case "toolResult":
-        addCount(counts, "Tool results", estimateTokens(message));
+        addValue(counts, "Tool results", estimateTokens(message));
         break;
       case "bashExecution":
-        addCount(counts, "Bash executions", estimateTokens(message));
+        addValue(counts, "Bash executions", estimateTokens(message));
         break;
       case "branchSummary":
       case "compactionSummary":
-        addCount(counts, "Summaries", estimateTokens(message));
+        addValue(counts, "Summaries", estimateTokens(message));
         break;
       case "custom":
-        addCount(counts, "Extension messages", estimateTokens(message));
+        addValue(counts, "Extension messages", estimateTokens(message));
         break;
       default:
-        addCount(counts, "Other", estimateTokens(message));
+        addValue(counts, "Other", estimateTokens(message));
     }
   }
 
@@ -79,60 +99,117 @@ function snapshot(ctx: ExtensionCommandContext): ContextSnapshot {
     limit,
     percent: usage?.percent ?? null,
     systemPrompt,
-    rows: [...counts.entries()]
-      .map(([name, tokens]) => ({ name, tokens }))
-      .sort((a, b) => b.tokens - a.tokens),
+    rows: [...counts.entries()].map(([name, tokens]) => ({ name, tokens })).sort((a, b) => b.tokens - a.tokens),
   };
 }
 
-export default function registerPiContext(pi: ExtensionAPI): void {
-  pi.registerEntryRenderer<ContextSnapshot>(ENTRY_KIND, (entry, _options, theme) => {
-    const data = entry.data;
-    if (!data) return undefined;
+function makeSegments(data: ContextData): Segment[] {
+  const messageNames = new Set(["User messages", "Assistant", "Thinking", "Summaries", "Extension messages"]);
+  const toolNames = new Set(["Tool calls", "Tool results", "Bash executions"]);
+  const messages = data.rows.filter((row) => messageNames.has(row.name)).reduce((sum, row) => sum + row.tokens, 0);
+  const tools = data.rows.filter((row) => toolNames.has(row.name)).reduce((sum, row) => sum + row.tokens, 0);
 
-    const box = new Box(1, 1, (value) => theme.bg("customMessageBg", value));
-    const used = data.used === null ? "?" : compactNumber(data.used);
-    const limit = data.limit > 0 ? compactNumber(data.limit) : "?";
-    const percent = data.percent === null ? "?" : `${data.percent.toFixed(1)}%`;
+  const result: Segment[] = [
+    { name: "System prompt", tokens: data.systemPrompt, color: "cyan", symbol: "⛁" },
+    { name: "Messages", tokens: messages, color: "green", symbol: "⛁" },
+    { name: "Tools", tokens: tools, color: "yellow", symbol: "⛁" },
+  ];
+  return result.filter((segment) => segment.tokens > 0);
+}
 
-    box.addChild(new Text(`${theme.fg("accent", "[context]")} ${used} / ${limit} tokens (${percent})`, 0, 0));
+function renderGrid(data: ContextData): string[] {
+  const used = data.used ?? data.systemPrompt + data.rows.reduce((sum, row) => sum + row.tokens, 0);
+  const usedCells = data.limit > 0 ? Math.min(GRID_CELLS, Math.round((used / data.limit) * GRID_CELLS)) : 0;
+  const cells: string[] = [];
+  let assigned = 0;
 
-    const total = data.systemPrompt + data.rows.reduce((sum, row) => sum + row.tokens, 0);
-    const note = data.used === null
-      ? "estimated composition; measured usage is not available yet"
-      : `composition estimate (~${compactNumber(total)} tokens)`;
-    box.addChild(new Text(theme.fg("dim", note), 0, 0));
-
-    const rows = [{ name: "System prompt", tokens: data.systemPrompt }, ...data.rows];
-    const width = Math.max(...rows.map((row) => row.name.length));
-    const barSize = 16;
-
-    for (const row of rows) {
-      if (row.tokens <= 0) continue;
-      const ratio = total > 0 ? row.tokens / total : 0;
-      const filled = Math.max(1, Math.round(ratio * barSize));
-      const bar = theme.fg("accent", "█".repeat(filled)) + theme.fg("dim", "░".repeat(barSize - filled));
-      const name = row.name.padEnd(width);
-      const amount = compactNumber(row.tokens).padStart(7);
-      const share = `${(ratio * 100).toFixed(1)}%`.padStart(6);
-      box.addChild(new Text(`  ${name} ${theme.fg("dim", amount)} ${bar} ${share}`, 0, 0));
+  for (const segment of makeSegments(data)) {
+    const count = data.limit > 0 ? Math.round((segment.tokens / data.limit) * GRID_CELLS) : 0;
+    for (let i = 0; i < count && assigned < usedCells; i += 1) {
+      cells.push(color(segment.color, segment.symbol));
+      assigned += 1;
     }
+  }
+  while (cells.length < usedCells) {
+    cells.push(color("cyan", "⛁"));
+  }
+  while (cells.length < GRID_CELLS) {
+    cells.push(color("dim", "⛶"));
+  }
 
-    return box;
-  });
+  return Array.from({ length: GRID_ROWS }, (_, row) =>
+    cells.slice(row * GRID_COLUMNS, (row + 1) * GRID_COLUMNS).join(" "),
+  );
+}
+
+function renderLines(data: ContextData, modelName?: string): string[] {
+  const used = data.used === null ? "?" : formatTokens(data.used);
+  const limit = data.limit > 0 ? formatTokens(data.limit) : "?";
+  const percent = data.percent === null ? "?" : `${data.percent.toFixed(1)}%`;
+  const estimated = data.systemPrompt + data.rows.reduce((sum, row) => sum + row.tokens, 0);
+  const title = modelName ? `${modelName} · ${used}/${limit} tokens (${percent})` : `${used}/${limit} tokens (${percent})`;
+  const segments = makeSegments(data);
+  const right = [bold(title), "", bold("Usage by category"), `${color("cyan", "⛁")} System prompt: ${formatTokens(data.systemPrompt)} tokens`];
+  for (const segment of segments) {
+    right.push(`${color(segment.color, segment.symbol)} ${segment.name}: ${formatTokens(segment.tokens)} tokens`);
+  }
+  const free = Math.max(0, data.limit - (data.used ?? estimated));
+  right.push(`${color("dim", "⛶")} Free space: ${formatTokens(free)} tokens`);
+
+  const left = renderGrid(data);
+  const lines: string[] = [bold("Context Usage"), ""];
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    lines.push(`${(left[i] ?? "").padEnd(21)}${right[i] ?? ""}`);
+  }
+  lines.push("", bold("Messages"));
+  for (const row of data.rows) {
+    lines.push(`  ${row.name.padEnd(18)} ${color("gray", formatTokens(row.tokens).padStart(7))}`);
+  }
+  lines.push("", color("dim", `Estimated composition: ~${formatTokens(estimated)} tokens`));
+  return lines;
+}
+
+class ContextWidget implements Component {
+  private wrapped: string[] = [];
+  private width = 0;
+
+  constructor(private readonly lines: string[]) {}
+
+  invalidate(): void {
+    this.width = 0;
+  }
+
+  render(width: number): string[] {
+    if (this.width !== width) {
+      this.wrapped = this.lines.flatMap((line) => (line ? wrapTextWithAnsi(line, width) : [""]));
+      this.width = width;
+    }
+    return this.wrapped;
+  }
+}
+
+export default function registerPiContext(pi: ExtensionAPI): void {
+  let visible = false;
+  const clear = (ctx: Pick<ExtensionContext, "hasUI" | "ui">) => {
+    if (visible && ctx.hasUI) {
+      ctx.ui.setWidget(WIDGET_ID, undefined);
+      visible = false;
+    }
+  };
+
+  pi.on("before_agent_start", (_event, ctx) => clear(ctx));
+  pi.on("agent_end", (_event, ctx) => clear(ctx));
 
   pi.registerCommand("context", {
-    description: "Show context-window usage and composition",
+    description: "Show Claude-style context-window usage",
     handler: async (_args, ctx) => {
-      const data = snapshot(ctx);
-      pi.appendEntry<ContextSnapshot>(ENTRY_KIND, data);
-
-      if (ctx.mode !== "tui" && ctx.hasUI) {
-        const used = data.used === null ? "?" : compactNumber(data.used);
-        const limit = data.limit > 0 ? compactNumber(data.limit) : "?";
-        const percent = data.percent === null ? "?" : `${data.percent.toFixed(1)}%`;
-        ctx.ui.notify(`Context: ${used} / ${limit} tokens (${percent})`, "info");
+      const lines = renderLines(collectData(ctx), ctx.model?.name);
+      if (!ctx.hasUI) {
+        process.stdout.write(`${lines.join("\n")}\n`);
+        return;
       }
+      ctx.ui.setWidget(WIDGET_ID, () => new ContextWidget(lines), { placement: "aboveEditor" });
+      visible = true;
     },
   });
 }
