@@ -31,6 +31,15 @@ const ANSI: Record<Color, string> = {
   white: "\x1b[37m",
 };
 const RESET = "\x1b[0m";
+const ANSI_ESCAPE = /\x1b\[[0-?]*[ -\/]*[@-~]/g;
+
+function visibleLength(text: string): number {
+  return text.replace(ANSI_ESCAPE, "").length;
+}
+
+function padVisible(text: string, width: number): string {
+  return text + " ".repeat(Math.max(0, width - visibleLength(text)));
+}
 
 function color(value: Color, text: string): string {
   return `${ANSI[value]}${text}${RESET}`;
@@ -159,7 +168,7 @@ function renderLines(data: ContextData, modelName?: string): string[] {
   const left = renderGrid(data);
   const lines: string[] = [bold("Context Usage"), ""];
   for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-    lines.push(`${(left[i] ?? "").padEnd(21)}${right[i] ?? ""}`);
+    lines.push(`${padVisible(left[i] ?? "", 21)}${right[i] ?? ""}`);
   }
   lines.push("", bold("Messages"));
   for (const row of data.rows) {
