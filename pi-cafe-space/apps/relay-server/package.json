@@ -1,0 +1,21 @@
+{
+  "name": "@pi-collab/relay-server",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["dist", "README.md"],
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('../web/public','dist/public',{recursive:true})\"",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@pi-collab/protocol": "workspace:*",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "@types/ws": "8.18.1"
+  }
+}

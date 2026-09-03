@@ -1,0 +1,24 @@
+{
+  "name": "pi-cafe-space",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Attach web clients to one live Pi CLI AgentSession through Pi Cafe Space without terminal mirroring.",
+  "type": "module",
+  "packageManager": "pnpm@10.9.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "relay": "pnpm --filter @pi-collab/relay-server start",
+    "relay:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-relay.ps1",
+    "relay:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-relay.ps1",
+    "check": "pnpm --filter @pi-collab/protocol build && pnpm -r check",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3",
+    "vitest": "4.1.9"
+  }
+}

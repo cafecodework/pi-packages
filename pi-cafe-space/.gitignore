@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.runtime/
+*.log
+.relay.pid
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
