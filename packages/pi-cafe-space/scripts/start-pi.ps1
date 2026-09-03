@@ -8,11 +8,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Extension = Join-Path $Root "packages\pi-extension\dist\index.js"
+$Extension = Join-Path $Root "dist\extension\index.js"
 
 if (-not (Test-Path $Extension)) {
   Push-Location $Root
-  try { & pnpm build; if ($LASTEXITCODE -ne 0) { throw "pnpm build failed" } }
+  try { & npm run build; if ($LASTEXITCODE -ne 0) { throw "npm run build failed" } }
   finally { Pop-Location }
 }
 

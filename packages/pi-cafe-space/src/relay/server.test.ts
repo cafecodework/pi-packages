@@ -1,4 +1,4 @@
-import { MAX_FRAME_BYTES } from "@pi-collab/protocol";
+import { MAX_FRAME_BYTES } from "../protocol/index.js";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { type RawData } from "ws";
 import { createRelayServer, type RunningRelayServer } from "./server.js";

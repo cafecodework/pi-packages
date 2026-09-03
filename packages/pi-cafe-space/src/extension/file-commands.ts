@@ -1,6 +1,6 @@
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { JsonValue } from "@pi-collab/protocol";
+import type { JsonValue } from "../protocol/index.js";
 
 export class FileCommandError extends Error {
   constructor(readonly code: string, message: string) {

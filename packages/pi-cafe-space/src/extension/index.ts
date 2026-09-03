@@ -11,7 +11,7 @@ import {
   type SessionSnapshot,
   type ToolExecution,
   type TranscriptMessage,
-} from "@pi-collab/protocol";
+} from "../protocol/index.js";
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { FileCommandError, listProjectDirectory, readProjectFile } from "./file-commands.js";

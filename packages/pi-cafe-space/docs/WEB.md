@@ -1,7 +1,6 @@
 # Web client
 
-当前是一个零构建依赖的静态移动 Web 客户端，文件位于 `public/`，由
-`@pi-collab/relay-server` 提供。
+当前是一个零构建依赖的静态移动 Web 客户端，源码位于 `web/public/`，构建时复制到 `dist/relay/public/` 并由 package 内的 relay 提供。
 
 功能：
 

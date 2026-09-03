@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileCommandError, listProjectDirectory, readProjectFile } from "./file-commands.js";
+import { listProjectDirectory, readProjectFile } from "./file-commands.js";
 
 const roots: string[] = [];
 
@@ -30,7 +30,7 @@ describe("project file commands", () => {
     roots.push(root);
     await writeFile(join(root, ".env"), "SECRET=value\n");
 
-    await expect(listProjectDirectory(root, "..")).rejects.toMatchObject<FileCommandError>({ code: "PATH_NOT_ALLOWED" });
-    await expect(readProjectFile(root, ".env")).rejects.toMatchObject<FileCommandError>({ code: "SENSITIVE_PATH" });
+    await expect(listProjectDirectory(root, "..")).rejects.toMatchObject({ code: "PATH_NOT_ALLOWED" });
+    await expect(readProjectFile(root, ".env")).rejects.toMatchObject({ code: "SENSITIVE_PATH" });
   });
 });

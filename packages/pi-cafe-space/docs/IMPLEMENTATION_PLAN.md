@@ -37,12 +37,12 @@ Pi CLI 输入 ───────────────┐
 浏览器/PWA
     │  HTTP 页面 + WebSocket /ws
     ▼
-apps/relay-server
-    │  房间、认证、转发、内存 snapshot、命令去重
-    ▼
-Pi CLI 进程
-    └─ packages/pi-extension
-         └─ 当前 Pi runtime 的唯一 host
+packages/pi-cafe-space
+    |-- src/relay
+    |    `-- 房间、认证、转发、内存 snapshot、命令去重
+    |-- src/extension
+    |    `-- 当前 Pi runtime 的唯一 host
+    `-- web/public
 ```
 
 职责边界：
@@ -107,7 +107,7 @@ daemon 是另一种运行模式，不是 extension-hosted 的透明升级。两�
 
 ## 4. 协议模型
 
-协议位于 `packages/protocol/src/index.ts`，当前版本为 `1`。
+协议位于 `src/protocol/index.ts`，当前版本为 `1`。
 
 ### 4.1 身份
 
@@ -194,7 +194,7 @@ relay 按 `peerId + requestId` 在内存中去重，避免浏览器因重试在 
 
 ## 6. 当前已实现
 
-- pnpm TypeScript monorepo。
+- 父仓库 `packages/*` 下的自包含 TypeScript Pi package。
 - 共享协议类型、运行时入站校验和 snapshot event projection。
 - relay HTTP server：
   - `/`
@@ -230,12 +230,13 @@ relay 按 `peerId + requestId` 在内存中去重，避免浏览器因重试在 
 
 ### 7.1 首次安装和普通 `pi` 自动模式
 
-在 `C:\Users\dp\Documents\cafecodework-pi-packages\pi-cafe-space` 构建并安装本地 extension package：
+在父仓库根目录构建并安装 `packages/pi-cafe-space`：
 
 ```powershell
-pnpm install
-pnpm build
-pi install C:\Users\dp\Documents\cafecodework-pi-packages\pi-cafe-space\packages\pi-extension
+cd C:\Users\dp\Documents\cafecodework-pi-packages
+npm install
+npm run pi-cafe-space:build
+pi install C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
 ```
 
 之后在任意项目目录直接运行：

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FRAME_BYTES, PROTOCOL_VERSION, type SessionSnapshot } from "@pi-collab/protocol";
+import { MAX_FRAME_BYTES, PROTOCOL_VERSION, type SessionSnapshot } from "../protocol/index.js";
 import { compactSnapshot } from "./index.js";
 
 describe("snapshot compaction", () => {

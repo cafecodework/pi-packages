@@ -16,7 +16,7 @@ import {
   type SnapshotMessage,
   type ToolExecution,
   type WelcomeMessage,
-} from "@pi-collab/protocol";
+} from "../protocol/index.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";

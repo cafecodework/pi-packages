@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Runtime = Join-Path $Root ".runtime"
 $PidFile = Join-Path $Runtime "relay.pid"
-$Entry = Join-Path $Root "apps\relay-server\dist\index.js"
+$Entry = Join-Path $Root "dist\relay\index.js"
 $isLoopback = $Bind -in @("127.0.0.1", "localhost", "::1")
 if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535" }
 if (-not $isLoopback -and ($HostToken -eq "local-dev-host-token" -or $ClientToken -eq "local-dev-client-token" -or $HostToken.Length -lt 16 -or $ClientToken.Length -lt 16)) {
@@ -25,7 +25,7 @@ if (Test-Path $PidFile) {
 
 if (-not (Test-Path $Entry)) {
   Push-Location $Root
-  try { & pnpm build; if ($LASTEXITCODE -ne 0) { throw "pnpm build failed" } }
+  try { & npm run build; if ($LASTEXITCODE -ne 0) { throw "npm run build failed" } }
   finally { Pop-Location }
 }
 

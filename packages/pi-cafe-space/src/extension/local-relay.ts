@@ -24,7 +24,7 @@ function healthUrl(relayUrl: URL): URL {
 
 async function healthy(url: URL): Promise<boolean> {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(700), cache: "no-store" });
+    const response = await fetch(url, { signal: AbortSignal.timeout(700) });
     if (!response.ok) return false;
     const body = await response.json() as { ok?: unknown };
     return body.ok === true;
@@ -41,14 +41,14 @@ export async function ensureLocalRelay(config: LocalRelayConfig): Promise<LocalR
   if (await healthy(checkUrl)) return "already_running";
 
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const projectRoot = resolve(moduleDir, "../../..");
-  const relayEntry = resolve(projectRoot, "apps/relay-server/dist/index.js");
+  const packageRoot = resolve(moduleDir, "../..");
+  const relayEntry = resolve(packageRoot, "dist/relay/index.js");
   if (!existsSync(relayEntry)) return "unavailable";
 
   const port = relayUrl.port || "80";
   const bindHost = relayUrl.hostname === "localhost" ? "127.0.0.1" : relayUrl.hostname.replace(/^\[|\]$/g, "");
   const child = spawn(process.execPath, [relayEntry], {
-    cwd: projectRoot,
+    cwd: packageRoot,
     detached: true,
     windowsHide: true,
     stdio: "ignore",
@@ -67,7 +67,7 @@ export async function ensureLocalRelay(config: LocalRelayConfig): Promise<LocalR
     if (await healthy(checkUrl)) {
       if (child.exitCode === null && child.pid) {
         try {
-          const runtimeDir = resolve(projectRoot, ".runtime");
+          const runtimeDir = resolve(packageRoot, ".runtime");
           mkdirSync(runtimeDir, { recursive: true });
           writeFileSync(resolve(runtimeDir, "relay.pid"), String(child.pid), "utf8");
         } catch {

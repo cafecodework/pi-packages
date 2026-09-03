@@ -1,0 +1,45 @@
+{
+  "name": "@cafecodework/pi-cafe-space",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Share one live Pi CLI session with authenticated Web/PWA clients without terminal mirroring.",
+  "license": "MIT",
+  "author": "cafecodework",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "docs"
+  ],
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/extension/index.js"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('web/public','dist/relay/public',{recursive:true})\"",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src",
+    "relay": "node dist/relay/index.js",
+    "relay:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-relay.ps1",
+    "relay:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-relay.ps1",
+    "pi:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-pi.ps1"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "vitest": "3.2.4"
+  }
+}

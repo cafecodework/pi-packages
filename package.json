@@ -6,7 +6,12 @@
   "license": "MIT",
   "workspaces": ["packages/*"],
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.base.json"
+    "typecheck": "tsc --noEmit -p tsconfig.base.json",
+    "pi-cafe-space:build": "npm run build --workspace=@cafecodework/pi-cafe-space",
+    "pi-cafe-space:check": "npm run check --workspace=@cafecodework/pi-cafe-space",
+    "pi-cafe-space:test": "npm run test --workspace=@cafecodework/pi-cafe-space",
+    "pi-cafe-space:relay:start": "npm run relay:start --workspace=@cafecodework/pi-cafe-space",
+    "pi-cafe-space:relay:stop": "npm run relay:stop --workspace=@cafecodework/pi-cafe-space"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "*",
