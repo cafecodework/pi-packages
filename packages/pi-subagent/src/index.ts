@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Type } from "typebox";
 import { getPackageDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { discoverAgents, type AgentDefinition } from "./agents.js";
 
 const MAX_CHILDREN = 4;
 const DEFAULT_TOOL_SET = "read,bash,grep,find,ls";
@@ -15,6 +16,7 @@ type JobState = "running" | "completed" | "failed" | "killed" | "timeout";
 type Job = {
   id: string;
   task: string;
+  agentName?: string;
   process: ChildProcess;
   startedAt: number;
   state: JobState;
@@ -82,7 +84,8 @@ export default function registerSubagent(pi: ExtensionAPI): void {
           `● ${active.length} subagent${active.length === 1 ? "" : "s"} running`,
           ...active.map((job) => {
             const seconds = Math.floor((Date.now() - job.startedAt) / 1000);
-            const label = job.task.replace(/\s+/g, " ");
+            const tag = job.agentName ? `[${job.agentName}] ` : "";
+            const label = `${tag}${job.task}`.replace(/\s+/g, " ");
             return `  └ ${job.id} · ${seconds}s · ${label.slice(0, 60)}${label.length > 60 ? "…" : ""}`;
           }),
         ];
@@ -108,13 +111,14 @@ export default function registerSubagent(pi: ExtensionAPI): void {
   const notify = (job: Job) => {
     const body = job.output || job.error || "(no output)";
     const usage = job.usage ? ` (${job.usage.input}+${job.usage.output} tok)` : "";
+    const agentPrefix = job.agentName ? `[${job.agentName}] ` : "";
     try {
       pi.sendMessage(
         {
           customType: "subagent-complete",
-          content: `Subagent ${job.id} ${job.state}${usage}:\n\n${shorten(body, NOTIFICATION_LIMIT)}`,
+          content: `Subagent ${job.id} ${agentPrefix}${job.state}${usage}:\n\n${shorten(body, NOTIFICATION_LIMIT)}`,
           display: true,
-          details: { jobId: job.id, status: job.state },
+          details: { jobId: job.id, status: job.state, agent: job.agentName },
         },
         { deliverAs: "steer", triggerTurn: true },
       );
@@ -123,15 +127,29 @@ export default function registerSubagent(pi: ExtensionAPI): void {
     }
   };
 
-  const launch = (input: { task: string; tools?: string; cwd?: string; model?: string; timeoutSec?: number }, sessionCwd: string): Job => {
+  const launch = (
+    input: {
+      task: string;
+      agent?: string;
+      tools?: string;
+      cwd?: string;
+      model?: string;
+      timeoutSec?: number;
+      systemPrompt?: string;
+    },
+    sessionCwd: string,
+  ): Job => {
     const id = `sa-${++sequence}`;
+    const tools = input.tools?.trim() || DEFAULT_TOOL_SET;
     const args = [
       ...executable.prefix,
       "--mode", "json", "-p", "--no-session", "-ne",
       "--no-skills", "--no-prompt-templates", "--no-context-files",
-      "-t", input.tools?.trim() || DEFAULT_TOOL_SET,
+      "-t", tools,
     ];
     if (input.model?.trim()) args.push("-m", input.model.trim());
+    if (input.systemPrompt?.trim()) args.push("-s", input.systemPrompt.trim());
+
     args.push(`Task: ${input.task.trim()}`);
 
     const child = spawn(executable.command, args, {
@@ -142,7 +160,14 @@ export default function registerSubagent(pi: ExtensionAPI): void {
     let resolveFinished: () => void = () => undefined;
     const finished = new Promise<void>((resolve) => { resolveFinished = resolve; });
     const job: Job = {
-      id, task: input.task, process: child, startedAt: Date.now(), state: "running", output: "", finished,
+      id,
+      task: input.task,
+      agentName: input.agent,
+      process: child,
+      startedAt: Date.now(),
+      state: "running",
+      output: "",
+      finished,
     };
     let lastAssistant: { text: string; usage?: { input: number; output: number } } | undefined;
     let stdout = "";
@@ -220,31 +245,58 @@ export default function registerSubagent(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Delegate an isolated task to a child Pi process. Use spawn to start, then status or wait to retrieve the report; kill stops a running task.",
-    promptSnippet: "Delegate self-contained work to an isolated child agent",
-    promptGuidelines: ["Use read-only tools for investigation; only grant write/edit when the child should modify files."],
+    description:
+      "Delegate an isolated task to a child Pi process or predefined agent role (e.g., quick_explorer). Use spawn to start, then status or wait to retrieve the report; kill stops a running task.",
+    promptSnippet: "Delegate self-contained work to an isolated child agent or agent role",
+    promptGuidelines: [
+      "Use 'quick_explorer' agent for cheap, bounded, read-only searches, inspections, and inventories to save tokens.",
+      "Use read-only tools for investigation; only grant write/edit when the child should modify files.",
+    ],
     parameters: Type.Object({
       action: Type.Union([Type.Literal("spawn"), Type.Literal("wait"), Type.Literal("status"), Type.Literal("kill")]),
-      task: Type.Optional(Type.String()),
-      tools: Type.Optional(Type.String()),
-      cwd: Type.Optional(Type.String()),
-      model: Type.Optional(Type.String()),
-      timeoutSec: Type.Optional(Type.Number()),
-      jobId: Type.Optional(Type.String()),
+      agent: Type.Optional(Type.String({ description: "Predefined agent role name (e.g. 'quick_explorer')" })),
+      task: Type.Optional(Type.String({ description: "Task description for the agent" })),
+      tools: Type.Optional(Type.String({ description: "Comma-separated tools list" })),
+      cwd: Type.Optional(Type.String({ description: "Working directory" })),
+      model: Type.Optional(Type.String({ description: "Model override (e.g. 'gpt-5.6-luna')" })),
+      timeoutSec: Type.Optional(Type.Number({ description: "Timeout in seconds" })),
+      jobId: Type.Optional(Type.String({ description: "Job ID for wait/status/kill" })),
     }),
     async execute(_callId, params, _signal, _update, ctx) {
       if (!ui) ui = ctx.ui as unknown as typeof ui;
       if (params.action === "spawn") {
         if (!params.task?.trim()) return result("spawn requires a non-empty task");
         if (runningJobs().length >= MAX_CHILDREN) return result(`concurrency limit reached (${MAX_CHILDREN})`);
+
+        let effectiveModel = params.model;
+        let effectiveTools = params.tools;
+        let effectiveSystemPrompt: string | undefined = undefined;
+
+        if (params.agent?.trim()) {
+          const agents = discoverAgents(ctx.cwd);
+          const found = agents.find((a) => a.name.toLowerCase() === params.agent!.trim().toLowerCase());
+          if (found) {
+            effectiveModel = effectiveModel || found.model;
+            if (!effectiveTools && found.tools && found.tools.length > 0) {
+              effectiveTools = found.tools.join(",");
+            }
+            effectiveSystemPrompt = found.systemPrompt;
+          }
+        }
+
         const job = launch({
           task: params.task,
-          tools: params.tools,
+          agent: params.agent,
+          tools: effectiveTools,
           cwd: params.cwd,
-          model: params.model,
+          model: effectiveModel,
+          systemPrompt: effectiveSystemPrompt,
           timeoutSec: params.timeoutSec,
         }, ctx.cwd);
-        return result(`subagent ${job.id} started. Continue working; its completion report will arrive automatically.`);
+
+        const agentInfo = params.agent ? ` role: '${params.agent}',` : "";
+        const modelInfo = effectiveModel ? ` model: '${effectiveModel}',` : "";
+        return result(`subagent ${job.id} started (${agentInfo}${modelInfo} tools: ${effectiveTools || DEFAULT_TOOL_SET}). Continue working; its completion report will arrive automatically.`);
       }
 
       const job = params.jobId
@@ -252,11 +304,13 @@ export default function registerSubagent(pi: ExtensionAPI): void {
         : [...jobs.values()].reverse().find((candidate) => candidate.state === "running");
       if (!job) return result(`no matching subagent found: ${params.jobId ?? "latest"}`);
       if (params.action === "status") {
-        return result(`subagent ${job.id}: ${job.state} (${Math.floor((Date.now() - job.startedAt) / 1000)}s)\n\n${shorten(job.output || job.error || "(still running)", 1500)}`);
+        const agentLabel = job.agentName ? ` [${job.agentName}]` : "";
+        return result(`subagent ${job.id}${agentLabel}: ${job.state} (${Math.floor((Date.now() - job.startedAt) / 1000)}s)\n\n${shorten(job.output || job.error || "(still running)", 1500)}`);
       }
       if (params.action === "wait") {
         await Promise.race([job.finished, new Promise<void>((resolve) => setTimeout(resolve, 120000))]);
-        return result(`subagent ${job.id}: ${job.state}\n\n${shorten(job.output || job.error || "(no output)", NOTIFICATION_LIMIT)}`);
+        const agentLabel = job.agentName ? ` [${job.agentName}]` : "";
+        return result(`subagent ${job.id}${agentLabel}: ${job.state}\n\n${shorten(job.output || job.error || "(no output)", NOTIFICATION_LIMIT)}`);
       }
       if (job.state !== "running") return result(`subagent ${job.id} is already ${job.state}`);
       job.process.kill("SIGTERM");

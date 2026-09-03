@@ -4,10 +4,11 @@
 
 ## 能力
 
-- `spawn`：启动隔离的子 agent，并立即返回 job ID；
+- `spawn`：启动隔离的子 agent 或指定预设角色，并立即返回 job ID；
 - `status`：查看运行状态和最新输出；
 - `wait`：等待任务完成；
 - `kill`：终止运行中的任务；
+- 支持定义 Agent 角色（如 `~/.pi/agent/agents/*.md` 或项目 `.pi/agents/*.md`），自动绑定低成本模型与只读工具；
 - 子 agent 完成后，会通过 steering message 把最终报告交回当前会话；
 - 最多同时运行 4 个子 agent；
 - 子进程默认只启用 `read,bash,grep,find,ls`，需要修改文件时再显式传入 `write,edit`。
@@ -28,9 +29,38 @@ pi install git:github.com/cafecodework/pi-packages
 pi install C:\path\to\pi-packages\packages\pi-subagent
 ```
 
-## 使用
+## 角色定义（如 quick_explorer）
 
-扩展安装后，Pi 会获得一个名为 `subagent` 的工具。典型调用流程：
+在 `~/.pi/agent/agents/quick_explorer.md`（或项目 `.pi/agents/quick_explorer.md`）中定义：
+
+```markdown
+---
+name: quick_explorer
+description: Bounded, low-ambiguity, read-only checks with independently verifiable results.
+model: gpt-5.6-luna
+tools:
+  - read
+  - bash
+  - grep
+  - find
+  - ls
+---
+
+You are quick_explorer.
+Handle deterministic searches, inventories, comparisons, and mechanical verification.
+Do not edit files. Return concise findings with evidence and file references.
+Escalate ambiguity to the parent agent instead of expanding scope.
+```
+
+调用时直接指定 `agent: "quick_explorer"` 即可自动使用轻量模型与只读工具：
+
+```text
+subagent({
+  "action": "spawn",
+  "agent": "quick_explorer",
+  "task": "搜索项目中所有包含 auth token 的文件路径"
+})
+```
 
 ```text
 subagent({
