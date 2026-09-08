@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#101827">
   <meta name="description" content="Pi Cafe Space live session client">
   <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <title>Pi Cafe Space</title>
 </head>
@@ -22,12 +23,12 @@
         </label>
         <label>
           客户端 Token
-          <input id="token-input" name="token" type="password" autocomplete="current-password" required>
+          <input id="token-input" name="token" type="password" autocomplete="current-password" maxlength="4096" required>
         </label>
         <button type="submit" class="primary">连接</button>
       </form>
       <p id="login-error" class="error-text" hidden></p>
-      <p class="hint">Token 只保存在当前浏览器标签页的 sessionStorage，不会写入 URL。</p>
+      <p class="hint">Token 优先保存在当前浏览器标签页的 sessionStorage；如果浏览器禁止 storage，则只保留在当前页面内存，不会写入 URL。</p>
     </section>
 
     <section id="app-view" hidden>
@@ -43,6 +44,7 @@
       </header>
 
       <section class="meta-grid panel">
+        <div class="host-picker"><span class="meta-label">Pi 实例</span><select id="host-select" aria-label="选择 Pi 实例"><option value="">等待 Pi 实例…</option></select></div>
         <div><span class="meta-label">Host</span><strong id="host-status">离线</strong></div>
         <div><span class="meta-label">模型</span><strong id="model-status">—</strong></div>
         <div><span class="meta-label">思考</span>
@@ -59,10 +61,6 @@
       <section class="workspace">
         <div class="conversation-column">
           <section id="transcript" class="transcript panel" aria-live="polite"></section>
-          <section id="tools" class="tools panel" hidden>
-            <div class="section-title">工具执行</div>
-            <div id="tool-list"></div>
-          </section>
 
           <form id="prompt-form" class="composer panel">
             <textarea id="prompt-input" rows="3" maxlength="65536" placeholder="给 Pi 发送消息…" required></textarea>

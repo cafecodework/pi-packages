@@ -3,9 +3,9 @@ dist/
 coverage/
 .runtime/
 *.log
+.tmp-*
 .relay.pid
-.env
-.env.*
+.env*
 !.env.example
 .DS_Store
 Thumbs.db

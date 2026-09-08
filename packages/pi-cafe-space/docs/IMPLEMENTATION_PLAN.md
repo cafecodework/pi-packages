@@ -23,8 +23,8 @@ Pi CLI 输入 ───────────────┐
 - 手机看到 Pi CLI 产生的 user、assistant、thinking、tool 和错误事件。
 - 手机发送的 prompt 经 relay 转发给 Pi 扩展，再进入当前 CLI 所属的同一个 Pi runtime。
 - relay 不创建 `AgentSession`，不调用模型，不读取或写入 Pi session JSONL。
-- 同一个 room 同时只允许一个 Pi host。
-- 浏览器断线、刷新或重连不能启动第二个 Pi runtime。
+- 同一个 room 可以同时连接多个独立 Pi host；每个 host 对应一个自己的 Pi runtime/session。
+- 浏览器断线、刷新或重连不能启动第二个 Pi runtime，也不能把不同 host 的事件混在一起。
 - relay 既能在本机运行，也能以后部署到服务器；Pi 主机通过出站 WebSocket 连接服务器，因此不要求服务器反向连接用户电脑。
 
 这不是终端镜像，也不是两个 Pi 进程共同读写 session 文件。
@@ -38,12 +38,13 @@ Pi CLI 输入 ───────────────┐
     │  HTTP 页面 + WebSocket /ws
     ▼
 packages/pi-cafe-space
-    |-- src/relay
-    |    `-- 房间、认证、转发、内存 snapshot、命令去重
-    |-- src/extension
-    |    `-- 当前 Pi runtime 的唯一 host
-    `-- web/public
+    ├─ src/relay       房间、认证、转发和每个 host 的独立状态
+    ├─ src/extension   当前 Pi runtime 的 host connector
+    ├─ src/protocol    snapshot/event/command 协议
+    └─ web/public      静态 Web 客户端
 ```
+
+一个 room 是连接命名空间，不是单一 session。它可以包含多个 Pi host；每个 host 由 `peerId` 标识，并拥有独立的 `streamId`、`sessionId`、snapshot、事件序号、命令队列和历史缓存。Web 客户端先收到 host 列表，再选择一个 host 查看和操作。
 
 职责边界：
 
@@ -51,12 +52,13 @@ packages/pi-cafe-space
 
 - 提供 Web 页面静态文件。
 - 接受 host 和 browser 两类 WebSocket 连接。
-- 按 room ID 配对 host/client。
+- 按 room ID 接受多个 host 和 client 连接。
+- 以 `peerId` 为 key 管理每个 Pi host 的独立 snapshot、事件流、命令队列和历史缓存。
 - 校验 host token、client token 和 Origin。
-- 把 client command 转成 `routed_command` 发给 host。
-- 把 host 的 snapshot/event 广播给所有浏览器。
-- 保存短期内存状态、命令结果，以及 host 已返回的历史会话列表/详情缓存。
-- 在 host 断开时通知浏览器并拒绝未完成命令；对于已缓存的历史会话查询可以继续只读返回。
+- 根据客户端的 `targetHostId`、`expectedStreamId`、可选的 `expectedSessionId` 和 `expectedCwd` 把 command 转成 `routed_command` 发给对应 host；session 或项目目录不匹配时拒绝旧命令。
+- 把带有 `hostId` 的 snapshot/event 广播给 room 内浏览器，由客户端选择性消费。
+- 保存短期内存状态、命令结果，以及各 host 已返回的历史会话列表/详情缓存；断开的 host 状态最多保留 30 分钟，避免长期污染实例列表；极端 pending race 在过期时以 `HOST_EXPIRED` 收束。
+- 在某个 host 断开时只通知该 host 离线并拒绝它的未完成命令；其他 host 继续工作，已缓存的历史查询可以继续只读返回。
 
 relay **不**：
 
@@ -69,7 +71,7 @@ relay **不**：
 ### Pi extension
 
 - 运行在原生 Pi CLI 进程内部。
-- 是当前 session 的唯一 host。
+- 是当前 Pi session 的唯一 host；同一个 room 中可以有其他独立 Pi host。
 - 监听 Pi 扩展事件。
 - 把 Pi 事件规范化为 protocol event。
 - 通过出站 WebSocket 连接 relay。
@@ -80,7 +82,7 @@ relay **不**：
 - 只连接 relay，不直接连接 Pi。
 - 不持有 Pi API Key。
 - 以 snapshot 初始化状态，以 seq 顺序应用事件。
-- 在发现序号缺口或 stream 变化时重新连接并获取 snapshot。
+- 为每个 `hostId` 保存独立 snapshot 并按 host 应用 event，只渲染当前选择的 host；在发现某个 host 的序号缺口或 stream 变化时重新连接并获取 snapshot。
 
 ## 3. 两种运行模式的边界
 
@@ -114,8 +116,9 @@ daemon 是另一种运行模式，不是 extension-hosted 的透明升级。两�
 - `peerRole: "host"`：Pi 扩展。
 - `peerRole: "client"`：浏览器或未来 companion CLI。
 - role 由连接使用的 token 决定，不能靠客户端声称获得 admin 权限。
-- `roomId` 标识一个协作房间。
-- `streamId` 标识一次 Pi extension host 生命周期/事件流。
+- `roomId` 标识一个协作房间，可以包含多个 Pi host。
+- `hostId` 是 Pi extension 的 `peerId`，标识一个独立 Pi runtime；默认值包含进程内随机实例 ID，避免不同电脑或 PID 重用时误合并，亦可用 `PI_COLLAB_PEER_ID` 显式指定。
+- `streamId` 标识一个 host 生命周期/事件流。
 - `sessionId` 标识 Pi session。
 - `seq` 在一个 stream 内单调递增。
 
@@ -123,7 +126,8 @@ daemon 是另一种运行模式，不是 extension-hosted 的透明升级。两�
 
 - `snapshot`：完整当前投影，包括 transcript、模型、thinking level、运行状态和工具状态。
 - `event`：带 `streamId`、`sessionId`、`seq` 的增量事件。
-- `host_status`：host 在线/离线状态。
+- `host_status`：room 内所有 host 的在线/离线状态、`ready` 同步状态和可选 session 元数据。替换连接在收到新 snapshot 前不会被当作可命令的旧 session。
+- `snapshot` / `event` 带 `hostId`，用于在同一 room 内区分不同 Pi 实例。
 - `host_command_result`：host 对 relay 命令的处理结果。
 
 事件类型当前包括：
@@ -140,6 +144,7 @@ daemon 是另一种运行模式，不是 extension-hosted 的透明升级。两�
 
 浏览器发送：
 
+- `targetHostId` 选择目标 Pi 实例；`expectedStreamId`、`expectedSessionId` 和可选的 `expectedCwd` 共同作为 host/session/project fence（旧客户端可省略后两者）。
 - `prompt`，空闲时直接提交；运行时必须指定 `steer` 或 `followUp`。
 - `abort`。
 - `set_thinking`。
@@ -153,10 +158,13 @@ daemon 是另一种运行模式，不是 extension-hosted 的透明升级。两�
 
 - browser `requestId`
 - `expectedStreamId`
+- `expectedSessionId`（新客户端发送；旧客户端可省略）
+- `expectedCwd`（新客户端发送；旧客户端可省略）
 - relay 内部 `relayRequestId`
 - source peer ID
+- relay 返回结果中的 `hostId`（用于防止切换实例或页面重连后错显示结果）
 
-relay 按 `peerId + requestId` 在内存中去重，避免浏览器因重试在 relay 生命周期内重复转发同一命令。
+relay 按 `hostId + sourcePeerId + requestId` 在目标 host 的内存状态中去重，避免浏览器因重试重复转发同一命令；没有明确目标且 room 中存在多个 host 时，relay 返回 `HOST_SELECTION_REQUIRED`。
 
 当前命令结果状态：
 
@@ -164,9 +172,9 @@ relay 按 `peerId + requestId` 在内存中去重，避免浏览器因重试在 
 - `applied`：同步控制操作已应用，例如 thinking level 设置成功。
 - `rejected`：relay、stream 或 Pi 扩展拒绝。
 
-**可靠性边界**：当前 relay 是单进程、内存状态设计，适合本地和单实例服务器。relay 自身重启后，命令去重表和房间状态消失；不能承诺跨 relay 重启的 exactly-once。未来若需要，加入持久化 command journal 和 host fencing。多实例部署还需要 sticky WebSocket routing 或 Redis/NATS 共享 room、snapshot 和命令状态，不能让多个实例各自接收同一个 room 的 host。
+**可靠性边界**：当前 relay 是单进程、内存状态设计，适合本地和单实例服务器。relay 自身重启后，命令去重表和房间状态消失；不能承诺跨 relay 重启的 exactly-once。当前已对同一 `peerId` 的替换连接执行内存级 fencing，并在新 snapshot 到达前暂停命令；未来仍需持久化 command journal 和跨进程 fencing。多实例部署还需要 sticky WebSocket routing 或 Redis/NATS 共享 room、host、snapshot 和命令状态，不能让同一个 host 的连接被多个实例分别接管。
 
-文件浏览是只读的：文件和历史命令由 relay 转发给 Pi extension，relay 本身不访问电脑磁盘；文件浏览会隐藏常见敏感路径（`.git`、`.env*`、密钥扩展名等）。历史会话由当前 Pi host 通过 `SessionManager` 提供，详情最多返回最近 100 条消息并受帧预算限制。Pi 完全退出后，Web 只能查看 relay 已缓存 30 分钟的历史查询结果，relay 重启或缓存过期后需要再次启动 Pi 刷新。
+文件浏览是只读的：文件和历史命令由 relay 转发给 Pi extension，relay 本身不访问电脑磁盘；文件浏览会隐藏常见敏感路径（`.git`、`.pi`、`.runtime`、`.env*`、密钥扩展名等），拒绝 symlink/reparse indirection，并且不会把文件系统根、用户主目录或其祖先作为远程浏览根。历史会话由当前 Pi host 通过 `SessionManager` 提供，详情最多返回最近 100 条消息并受帧预算限制。Pi 完全退出后，Web 只能查看 relay 已缓存 30 分钟的历史查询结果，relay 重启或缓存过期后需要再次启动 Pi 刷新。
 
 ## 5. Pi API 现实边界
 
@@ -202,9 +210,9 @@ relay 按 `peerId + requestId` 在内存中去重，避免浏览器因重试在 
   - `/healthz`
   - `/ws`
 - host/client token 认证。
-- room 单 host 约束和同 host 重连替换。
+- 同一 room 支持多个独立 host；同一 `peerId` 的重连替换旧连接，不同 Pi 实例互不冲突。
 - Origin 检查、帧大小限制、心跳和慢客户端断开。
-- snapshot 和历史 transcript 会同时按消息数与 256 KiB 帧预算裁剪，工具状态也有独立上限；snapshot 尚未建立时 host 不发送增量 event。
+- snapshot 和历史 transcript 会同时按消息数与 256 KiB 帧预算裁剪，工具状态也有独立上限；snapshot 尚未建立时 host 不发送增量 event。转发前 relay 会重建 snapshot/event/command/result envelope，未知字段不能把新增 metadata 挤出帧预算。
 - relay 在缺少 snapshot 时只向同一 host 报告一次 `SNAPSHOT_REQUIRED`，避免错误通知风暴。
 - Pi extension：
   - 自动连接或 `/collab-connect`
@@ -255,7 +263,7 @@ pi
 .\scripts\start-relay.ps1
 ```
 
-`start-pi.ps1` 现在调用普通 `pi`，只负责设置 relay URL、room 和 token，不会重复加载 extension。也可以进入 Pi 后执行：
+`start-pi.ps1` 现在调用普通 `pi`，只负责设置 relay URL、room 和 token，不会重复加载 extension；Pi 退出后会恢复调用方原有的 `PI_COLLAB_*` 环境变量。也可以进入 Pi 后执行：
 
 ```text
 /collab-connect
@@ -271,7 +279,7 @@ pi
 http://127.0.0.1:37891/
 ```
 
-本机 loopback 页面会自动使用开发 client token 和 `main` room；非 loopback 访问仍显示 token 登录。
+本机 loopback 页面在当前 tab 没有已保存 client token 时会自动使用开发 client token 和 `main` room；已有自定义 token 会被保留，非 loopback 访问仍显示 token 登录。
 
 手机访问需要让 relay 绑定局域网地址：
 
@@ -337,15 +345,16 @@ http://192.168.1.20:37891/
 首版不以“页面能打开”为完成，而以以下测试为准：
 
 1. 一个 Pi CLI + 一个 Web：CLI prompt 的 user/assistant 流在 Web 出现。
-2. 一个 Pi CLI + 一个 Web：Web prompt 出现在同一个 Pi transcript，不启动第二个 host。
-3. relay 日志和测试能证明同一 room 只有一个 host。
-4. Web 发送重复 request ID 时，Pi host 只收到一次转发。
-5. Pi 运行期间 Web 使用 `steer`/`followUp`，不会触发未指定 delivery 的错误。
-6. Web 断线重连后，以 snapshot 恢复当前状态，不重复渲染旧事件。
-7. `/new`、`/resume`、`/fork` 或 `/reload` 后 stream 变化，旧命令被拒绝并要求重新同步。
-8. host 断开时 Web 显示离线，未完成命令得到明确失败结果。
-9. 错误 token、非法 room、错误 Origin、超大帧被拒绝。
-10. relay 不包含 Pi SDK runtime，不读取 session JSONL，不暴露 API Key。
+2. 一个 Pi CLI + 一个 Web：Web prompt 出现在所选 Pi transcript，不启动第二个 runtime。
+3. 两个 Pi CLI + 一个 Web：两个 host 可以同时加入同一 room，Web 可以切换实例且 command 不串台。
+4. relay 日志和测试能证明 command 只会路由到选定的 host。
+5. Web 发送重复 request ID 时，选定的 Pi host 只收到一次转发。
+6. Pi 运行期间 Web 使用 `steer`/`followUp`，不会触发未指定 delivery 的错误。
+7. Web 断线重连后，以 snapshot 恢复当前状态，不重复渲染旧事件。
+8. `/new`、`/resume`、`/fork` 或 `/reload` 后 stream 变化，旧命令被拒绝并要求重新同步。
+9. host 断开时 Web 显示离线，未完成命令得到明确失败结果。
+10. 错误 token、非法 room、错误 Origin、超大帧被拒绝。
+11. relay 不包含 Pi SDK runtime，不读取 session JSONL，不暴露 API Key。
 
 ## 10. 当前决策
 
