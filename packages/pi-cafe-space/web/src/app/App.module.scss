@@ -1,0 +1,24 @@
+.shell {
+  min-height: 100dvh;
+  max-width: 1440px;
+  margin: auto;
+  padding: clamp(16px, 3vw, 32px);
+  > header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  h1 { font-size: 1.25rem; letter-spacing: -.02em; }
+  nav { display: flex; gap: 8px; }
+}
+.empty {
+  margin-block: 10vh;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  background: var(--surface);
+  h2 { font-size: 1.1rem; }
+  p { color: var(--muted); line-height: 1.7; }
+}

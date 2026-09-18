@@ -1,5 +1,7 @@
 # Relay server
 
+> 本页描述当前 Node.js/TypeScript 实现。目标迁移为 Go + Gin，详见 [Go Relay 重构方案](./RELAY_GO_REFACTOR_PLAN.md) 和 [总体重构方案](./WEB_REFACTOR_PLAN.md)；当前运行方式尚未切换。
+
 `src/relay/` 是 Pi extension 与浏览器客户端之间的传输边界。它不拥有 `AgentSession`，也不读取或写入 Pi session JSONL。一个 room 可以同时容纳多个 Pi host；每个 host 按 `peerId` 保存独立的 snapshot、事件流、命令去重状态和历史查询结果。单个 room 默认最多保留 64 个 host state 和 256 个 browser client；单个 relay 进程最多保留 256 个 room、512 个 WebSocket 连接，未完成 hello 的连接最多 128 个且同一来源地址最多 32 个。达到 host 上限时会优先淘汰已离线且没有 pending command 的缓存 state。历史缓存和离线 host 状态默认在 30 分钟无活动后过期；新的历史查询以及离线缓存命中会刷新相应的非活动计时器，而 host 重连会清理旧历史缓存并重新建立当前连接的 snapshot 生命周期。若极端 close/result race 留下 pending command，过期时会以 `HOST_EXPIRED` 拒绝后再释放 host state。现代客户端通过 `hostId` 选择目标实例；只理解旧 aggregate 字段的客户端只能看到确定性 primary host，在多 host room 中不应依赖无 target command 的自动选择。host 重连或替换时，在收到新 snapshot 前标记为 `ready: false`，避免把旧 session 的命令路由到新连接；新连接需要在 5 秒内发送 snapshot，否则 relay 会关闭它并保留离线缓存。
 
 ## Local start

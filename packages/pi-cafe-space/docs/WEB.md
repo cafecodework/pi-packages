@@ -13,5 +13,4 @@
 - 通过 relay 请求当前 Pi 项目中的目录和文本文件（服务端不直接读电脑磁盘）
 - 查看当前项目的历史 Pi 会话和历史 transcript；host 断开后可继续读取 relay 内存中已经缓存的历史结果（relay 重启或 30 分钟缓存过期后需重新启动 Pi 刷新）
 
-当前客户端不直接连接 Pi，也不包含任何 Pi API Key。命令携带 stream/session/project-root fence，结果带目标 `hostId`，因此切换实例、项目目录或页面重连后不会把旧结果渲染到当前实例。`PI_COLLAB_ALLOWED_ORIGINS` 只用于增加跨源浏览器 Origin；同源和兼容性的无 `Origin` 连接仍依赖 client token 认证。后续可替换为 React/Vue
-等构建型前端，但必须保持同一 wire protocol。
+当前客户端不直接连接 Pi，也不包含任何 Pi API Key。命令携带 stream/session/project-root fence，结果带目标 `hostId`，因此切换实例、项目目录或页面重连后不会把旧结果渲染到当前实例。`PI_COLLAB_ALLOWED_ORIGINS` 只用于增加跨源浏览器 Origin；同源和兼容性的无 `Origin` 连接仍依赖 client token 认证。目标重构已确定为 React + Vite + assistant-ui + SCSS Modules，并将 Relay 迁移至 Go + Gin；详见 [Web 与 Relay 重构方案](./WEB_REFACTOR_PLAN.md)。迁移已实施至 R11，但尚未切换生产入口；本页描述的仍是当前静态客户端，最新进度见 [重构进度](./refactor/PROGRESS.md)。

@@ -4,4 +4,5 @@ dist
 .DS_Store
 *.tsbuildinfo
 .pnpm-debug.log*
-package-lock.json
+**/package-lock.json
+!/package-lock.json
