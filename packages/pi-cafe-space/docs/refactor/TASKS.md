@@ -294,7 +294,7 @@ R00 基线 → R01 版本与 API 核对 [审查] → R02 契约 fixtures [审查
 
 **前置：** R14 完成。
 
-**允许改：** `web/src/{app,layouts,pages,components/ui,i18n}/`、`features/{auth,hosts,files,history,connection}/`、chat Composer 及相关 styles/tests。
+**允许改：** `web/src/{app,layouts,pages,components/ui,i18n}/`、`features/{auth,hosts,files,history,connection}/`、chat Composer 及相关 styles/tests。用户后续明确选择Radix UI Primitives时，允许在本package manifest和根lock的该workspace记录中将既有Dialog/Tooltip/Label版本声明为直接依赖；不升级或改动其他workspace依赖图，详见PROGRESS §41。§43用户后续明确授权改用shadcn/ui + Tailwind及安装skill：允许新增components.json、Web Tailwind/Vite/TS别名配置、官方Base组件源码、对应精确package/lock依赖、项目skill及skill-lock；R16构建只扩展合法CSS选择器解析与许可收集，不放宽CSP/引用/容量限制。不含试用部署或R19。
 
 **分步：**
 

@@ -25,11 +25,11 @@
 
 ## 2. 不可改动的方向
 
-1. Web：React、Vite、TypeScript、SCSS Modules、axios、clsx、i18next、react-i18next、immer、use-immer、lodash-es、modern-normalize、nanoid、react-router，以及 assistant-ui。
+1. Web：React、Vite、TypeScript、axios、clsx、i18next、react-i18next、immer、use-immer、lodash-es、nanoid、react-router，以及 assistant-ui。2026-09-29用户明确授权shadcn/ui（Base UI）+ Tailwind v4：共享控件用Tailwind，现有页面SCSS Modules保留，Preflight替代入口normalize；见PROGRESS §43。
 2. Relay：Go + Gin + Gorilla WebSocket，单进程内存状态；最终用 go:embed 内嵌 Web 资源。
 3. Pi extension：继续 TypeScript，原生 Pi 是唯一 AgentSession owner。
 4. React 接 `useExternalStoreRuntime`，不是 `useChatRuntime`、`useLocalRuntime`、`usePiRuntime` 或模型 API 示例。
-5. Router 使用 HashRouter；不加入 Next.js、Tailwind、SSR、Redux、Zustand、Redis、数据库、Socket.IO 或 AI SDK 服务端。
+5. Router 使用 HashRouter；不加入 Next.js、SSR、Redux、Zustand、Redis、数据库、Socket.IO 或 AI SDK 服务端。Tailwind仅按§43用户指定的UI接入授权，不改变聊天/runtime架构。
 6. 工具在对话内容中按真实 ID 关联；不能做独立面板，也不能把全部工具挂到最后一条 assistant。
 7. Web 不执行工具；Relay 不调用模型、不读写 Pi JSONL、不读电脑项目文件、不接触 provider API key。
 8. 保留 `PI_COLLAB_*`、`/collab-*`、相关 CLI flags、storage keys、任意 PiArgs、现有 wire v1 的合法兼容用法。

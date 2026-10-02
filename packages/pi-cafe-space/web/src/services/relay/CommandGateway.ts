@@ -1,12 +1,14 @@
 import { nanoid } from 'nanoid';
 import { canonicalCommandPayload, decodeWireMessage, isCommandPayload, isSessionSnapshot, MAX_FRAME_BYTES, type ClientCommandMessage, type CommandPayload, type CommandResultMessage, type JsonValue } from '../../../../src/protocol/index';
-import { CollabStore, scopeKey, type HostScope } from '../../state/CollabStore';
+import { CollabStore, scopeKey, historyCacheKey, type HostScope } from '../../state/CollabStore';
 import type { RelayClient, RelayEvent } from './RelayClient';
 type ClientPort = Pick<RelayClient, 'getState' | 'subscribe' | 'sendCommand'>;
 export interface ExecuteOptions {
     signal?: AbortSignal;
     timeoutMs?: number;
     viewGeneration?: number;
+    /** Completion reads do not replace the file browser's panel or request slot. */
+    transient?: boolean;
 }
 export interface GatewayResult {
     status: 'applied' | 'dispatched' | 'rejected' | 'unknown';
@@ -22,6 +24,7 @@ interface Pending {
     revision: number;
     authority: number;
     slot: string;
+    transient: boolean;
     bytes: number;
     sent: boolean;
     retried: boolean;
@@ -30,7 +33,7 @@ interface Pending {
     timer: ReturnType<typeof setTimeout>;
     cleanup: () => void;
 }
-const reads = new Set(['list_dir', 'read_file', 'list_sessions', 'get_session']);
+const reads = new Set(['list_dir', 'read_file', 'list_sessions', 'get_session', 'list_commands']);
 const history = new Set(['list_sessions', 'get_session']);
 const encoder = new TextEncoder();
 const failure = (code: string, unknown = false): GatewayResult => ({ status: unknown ? 'unknown' : 'rejected', code: unknown ? 'RESULT_UNKNOWN' : code, message: code });
@@ -43,6 +46,7 @@ function validData(payload: CommandPayload, data: unknown, scope: HostScope): bo
     if (!d)
         return false;
     switch (payload.name) {
+        case 'list_commands': return d.kind === 'commands' && typeof d.truncated === 'boolean' && Array.isArray(d.commands) && d.commands.length <= 200 && d.commands.every(item => { const v = record(item); return v && text(v.name, 128) && /^[^\s/\\\u0000-\u001f\u007f]+$/u.test(v.name) && text(v.description, 160) && ['extension', 'prompt', 'skill'].includes(String(v.source)); });
         case 'list_dir': return d.kind === 'directory' && d.path === (payload.path || '.') && typeof d.truncated === 'boolean' && Array.isArray(d.entries) && d.entries.length <= 300 && d.entries.every(e => { const v = record(e); return v && text(v.name, 4096) && ['directory', 'file', 'link'].includes(String(v.kind)); });
         case 'read_file': return d.kind === 'file' && d.path === payload.path && d.offset === (payload.offset ?? 0) && integer(d.size) && integer(d.bytesRead, 128 * 1024) && typeof d.truncated === 'boolean' && text(d.content, 128 * 1024);
         case 'list_sessions': return d.kind === 'sessions' && d.currentSessionId === scope.sessionId && (d.historyTruncated === undefined || typeof d.historyTruncated === 'boolean') && Array.isArray(d.sessions) && d.sessions.length <= 100 && d.sessions.every(item => { const v = record(item); return v && text(v.sessionId, 256) && v.sessionId.length > 0 && nullableText(v.name, 256) && nullableText(v.cwd, 4096) && text(v.created, 64) && v.created.length > 0 && text(v.modified, 64) && v.modified.length > 0 && integer(v.messageCount) && text(v.firstMessage, 2048); });
@@ -83,6 +87,16 @@ export class CommandGateway {
             return Promise.resolve(failure('HOST_OFFLINE'));
         if (host.info.connected && host.info.ready === false)
             return Promise.resolve(failure('HOST_NOT_READY'));
+        if (['list_commands', 'run_command'].includes(payload.name) || payload.name === 'prompt' && payload.files !== undefined) {
+            if (host.snapshot.inputAssist !== true) return Promise.resolve(failure('INPUT_ASSIST_UNAVAILABLE'));
+            if (payload.name === 'run_command' && (host.snapshot.phase !== 'idle' || host.snapshot.hasPendingMessages || [...this.#pending.values()].some(p => p.scope.hostId === scope.hostId && p.request.payload.name === 'run_command'))) return Promise.resolve(failure('SESSION_BUSY'));
+        }
+        if (['new_session', 'rename_session', 'resume_session'].includes(payload.name)) {
+            if (host.snapshot.sessionControl !== true)
+                return Promise.resolve(failure('SESSION_CONTROL_UNAVAILABLE'));
+            if (host.snapshot.phase !== 'idle' || host.snapshot.hasPendingMessages || [...this.#pending.values()].some(p => p.scope.hostId === scope.hostId && ['new_session', 'rename_session', 'resume_session'].includes(p.request.payload.name)))
+                return Promise.resolve(failure('SESSION_BUSY'));
+        }
         const requestId = nanoid();
         const request: ClientCommandMessage = { type: 'command', requestId, targetHostId: scope.hostId, expectedStreamId: scope.streamId, expectedSessionId: scope.sessionId, expectedCwd: scope.cwd, payload: canonicalCommandPayload(payload) };
         let bytes: number;
@@ -107,10 +121,11 @@ export class CommandGateway {
                 this.#settle(p.request.requestId, failure('TIMEOUT', p.sent && !reads.has(payload.name))); }, timeout);
             const onAbort = () => { if (p)
                 this.#settle(p.request.requestId, failure('CANCELLED', p.sent && !reads.has(payload.name))); };
-            const slot = reads.has(payload.name) ? payload.name : '';
+            const transient = options.transient === true || payload.name === 'list_commands';
+            const slot = reads.has(payload.name) ? payload.name + (transient ? ':transient' : '') : '';
             if (slot)
                 this.#latest.set(slot, requestId);
-            p = { request, scope, generation, view, revision: host.revision, authority: host.authority, slot, bytes, sent: false, retried: false, retryAfter: null, resolve, timer, cleanup: () => options.signal?.removeEventListener('abort', onAbort) };
+            p = { request, scope, generation, view, revision: host.revision, authority: host.authority, slot, transient, bytes, sent: false, retried: false, retryAfter: null, resolve, timer, cleanup: () => options.signal?.removeEventListener('abort', onAbort) };
             this.#pending.set(requestId, p);
             this.#bytes += bytes;
             options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -196,11 +211,11 @@ export class CommandGateway {
             this.#settle(result.requestId, failure('RESULT_INVALID'));
             return;
         }
-        if (result.status === 'applied' && reads.has(p.request.payload.name) && result.data !== undefined) {
+        if (result.status === 'applied' && reads.has(p.request.payload.name) && !p.transient && result.data !== undefined) {
             const kind = (result.data as {
                 kind: 'directory' | 'file' | 'sessions' | 'session';
             }).kind;
-            const key = history.has(p.request.payload.name) ? JSON.stringify([scopeKey(p.scope), p.revision, p.request.payload.name, p.request.payload.name === 'get_session' ? p.request.payload.sessionId : null]) : undefined;
+            const key = history.has(p.request.payload.name) ? historyCacheKey(p.scope, p.revision, p.request.payload.name, p.request.payload.name === 'get_session' ? p.request.payload.sessionId : null) : undefined;
             if (!this.store.commit(p.scope, p.view, kind, result.data, key)) {
                 this.#settle(result.requestId, failure('VIEW_CHANGED'));
                 return;

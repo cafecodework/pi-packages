@@ -1,0 +1,11 @@
+.compact[data-side] {
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  max-width: 420px;
+  height: auto;
+  max-height: calc(100dvh - 32px);
+  border: 1px solid var(--cafe-line);
+  border-radius: var(--cafe-radius-panel);
+  transition-property: opacity;
+}

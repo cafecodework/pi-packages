@@ -33,6 +33,10 @@ export interface ModelRef {
   id: string;
 }
 
+export type TranscriptPart =
+  | { index: number; type: "text" | "thinking"; text: string }
+  | { index: number; type: "tool-call"; toolCallId: string; toolName: string; argsText: string };
+
 export interface TranscriptMessage {
   id: string;
   role: "user" | "assistant" | "tool" | "system";
@@ -42,6 +46,9 @@ export interface TranscriptMessage {
   status: "streaming" | "complete" | "error";
   toolName: string | null;
   toolCallId: string | null;
+  parts?: TranscriptPart[];
+  partsTruncated?: boolean;
+  toolIsError?: boolean;
 }
 
 export interface ToolExecution {
@@ -50,6 +57,7 @@ export interface ToolExecution {
   argsText: string;
   output: string;
   status: "running" | "complete" | "error";
+  parentMessageId?: string;
 }
 
 export interface SessionSnapshot {
@@ -63,6 +71,10 @@ export interface SessionSnapshot {
   thinkingLevel: ThinkingLevel;
   phase: AgentPhase;
   hasPendingMessages: boolean;
+  /** Native Pi lifecycle commands; absent on older extensions. */
+  sessionControl?: boolean;
+  /** Slash command discovery/execution and bounded project-file references. */
+  inputAssist?: boolean;
   messages: TranscriptMessage[];
   historyTruncated: boolean;
   tools: ToolExecution[];
@@ -72,7 +84,7 @@ export interface SessionSnapshot {
 export type CollabEvent =
   | { kind: "session_state"; phase: AgentPhase; hasPendingMessages: boolean }
   | { kind: "message_started"; message: TranscriptMessage }
-  | { kind: "message_delta"; messageId: string; channel: "text" | "thinking"; delta: string }
+  | { kind: "message_delta"; messageId: string; channel: "text" | "thinking"; delta: string; partIndex?: number }
   | { kind: "message_finished"; message: TranscriptMessage }
   | { kind: "tool_started"; tool: ToolExecution }
   | { kind: "tool_updated"; toolCallId: string; output: string }
@@ -142,14 +154,19 @@ export interface SnapshotMessage {
 }
 
 export type CommandPayload =
-  | { name: "prompt"; content: string; delivery?: DeliveryMode }
+  | { name: "prompt"; content: string; delivery?: DeliveryMode; files?: string[] }
+  | { name: "list_commands" }
+  | { name: "run_command"; command: string }
   | { name: "abort" }
   | { name: "set_thinking"; level: ThinkingLevel }
   | { name: "set_model"; provider: string; modelId: string }
   | { name: "list_dir"; path: string }
   | { name: "read_file"; path: string; offset?: number; limit?: number }
   | { name: "list_sessions" }
-  | { name: "get_session"; sessionId: string };
+  | { name: "get_session"; sessionId: string }
+  | { name: "new_session" }
+  | { name: "rename_session"; title: string }
+  | { name: "resume_session"; sessionId: string };
 
 export interface ClientCommandMessage {
   type: "command";
@@ -487,6 +504,50 @@ function isHostInfo(value: unknown): value is HostInfo {
     isNullableString(value.sessionName, 256) && isNullableString(value.cwd, 16_384);
 }
 
+function isTranscriptParts(value: unknown): value is TranscriptPart[] {
+  if (!Array.isArray(value) || value.length > 500) return false;
+  let previous = -1;
+  for (const part of value) {
+    if (!isRecord(part) || !isNonNegativeInteger(part.index) || part.index > 499 || part.index <= previous) return false;
+    previous = part.index;
+    if (part.type === "text" || part.type === "thinking") {
+      if (typeof part.text !== "string" || part.text.length > MAX_TRANSCRIPT_TEXT) return false;
+    } else if (part.type === "tool-call") {
+      if (!isString(part.toolCallId, 256) || !isString(part.toolName, 256) || typeof part.argsText !== "string" || part.argsText.length > 4096) return false;
+    } else return false;
+  }
+  return true;
+}
+
+function messageExtras(message: TranscriptMessage): Pick<TranscriptMessage, "parts" | "partsTruncated" | "toolIsError"> {
+  return {
+    ...(message.parts === undefined ? {} : { parts: message.parts.map((part): TranscriptPart => part.type === "tool-call"
+      ? { index: part.index, type: part.type, toolCallId: part.toolCallId, toolName: part.toolName, argsText: part.argsText }
+      : { index: part.index, type: part.type, text: part.text }) }),
+    ...(message.partsTruncated === undefined ? {} : { partsTruncated: message.partsTruncated }),
+    ...(message.toolIsError === undefined ? {} : { toolIsError: message.toolIsError }),
+  };
+}
+
+// Shared compaction boundary: retain optional evidence when faithful, otherwise
+// omit the complete parts array rather than presenting partial structure as full.
+export function compactTranscriptMessage(message: TranscriptMessage, text = message.text, thinking = message.thinking, dropParts = false): TranscriptMessage {
+  const result: TranscriptMessage = {
+    id: message.id, role: message.role, text, thinking, timestamp: message.timestamp,
+    status: message.status, toolName: message.toolName, toolCallId: message.toolCallId,
+    ...messageExtras(message),
+  };
+  if (result.parts !== undefined && (dropParts || text !== message.text || thinking !== message.thinking)) {
+    delete result.parts;
+    result.partsTruncated = true;
+  }
+  return result;
+}
+
+function toolExtras(tool: ToolExecution): Pick<ToolExecution, "parentMessageId"> {
+  return tool.parentMessageId === undefined ? {} : { parentMessageId: tool.parentMessageId };
+}
+
 function isTranscriptMessage(value: unknown): value is TranscriptMessage {
   if (!isRecord(value)) return false;
   return isString(value.id, 128) &&
@@ -494,14 +555,18 @@ function isTranscriptMessage(value: unknown): value is TranscriptMessage {
     typeof value.text === "string" && value.text.length <= MAX_TRANSCRIPT_TEXT && typeof value.thinking === "string" && value.thinking.length <= MAX_TRANSCRIPT_TEXT &&
     typeof value.timestamp === "number" && Number.isFinite(value.timestamp) &&
     (value.status === "streaming" || value.status === "complete" || value.status === "error") &&
-    isNullableString(value.toolName, 256) && isNullableString(value.toolCallId, 256);
+    isNullableString(value.toolName, 256) && isNullableString(value.toolCallId, 256) &&
+    (value.parts === undefined || (value.role === "assistant" && isTranscriptParts(value.parts))) &&
+    (value.partsTruncated === undefined || typeof value.partsTruncated === "boolean") &&
+    (value.toolIsError === undefined || (value.role === "tool" && typeof value.toolIsError === "boolean"));
 }
 
 function isToolExecution(value: unknown): value is ToolExecution {
   if (!isRecord(value)) return false;
   return isString(value.toolCallId, 256) && isString(value.toolName, 256) &&
     typeof value.argsText === "string" && value.argsText.length <= 64 * 1024 && typeof value.output === "string" && value.output.length <= 64 * 1024 &&
-    (value.status === "running" || value.status === "complete" || value.status === "error");
+    (value.status === "running" || value.status === "complete" || value.status === "error") &&
+    (value.parentMessageId === undefined || isString(value.parentMessageId, 128));
 }
 
 export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
@@ -511,6 +576,8 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.cwd === "string" && value.cwd.length <= 16_384 && isNullableString(value.activeLeafId, 128) &&
     isModelRef(value.model) && isThinkingLevel(value.thinkingLevel) &&
     (value.phase === "idle" || value.phase === "running" || value.phase === "waiting_local_ui") &&
+    (value.sessionControl === undefined || typeof value.sessionControl === "boolean") &&
+    (value.inputAssist === undefined || typeof value.inputAssist === "boolean") &&
     typeof value.hasPendingMessages === "boolean" && Array.isArray(value.messages) && value.messages.length <= 1_000 &&
     value.messages.every(isTranscriptMessage) && (value.historyTruncated === undefined || typeof value.historyTruncated === "boolean") && Array.isArray(value.tools) && value.tools.length <= 500 &&
     value.tools.every(isToolExecution) && isNonNegativeInteger(value.lastEventSeq) && value.lastEventSeq <= MAX_EVENT_SEQUENCE;
@@ -520,8 +587,11 @@ export function isCommandPayload(value: unknown): value is CommandPayload {
   if (!isRecord(value)) return false;
   if (value.name === "prompt") {
     return isString(value.content, 64 * 1024) &&
-      (value.delivery === undefined || value.delivery === "steer" || value.delivery === "followUp");
+      (value.delivery === undefined || value.delivery === "steer" || value.delivery === "followUp") &&
+      (value.files === undefined || Array.isArray(value.files) && value.files.length <= 8 && value.files.every(path => isString(path, 4096)));
   }
+  if (value.name === "list_commands") return true;
+  if (value.name === "run_command") return isString(value.command, 65536) && value.command.startsWith('/') && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.command);
   if (value.name === "abort") return true;
   if (value.name === "set_thinking") return isThinkingLevel(value.level);
   if (value.name === "set_model") return isString(value.provider, 128) && isString(value.modelId, 256);
@@ -532,7 +602,9 @@ export function isCommandPayload(value: unknown): value is CommandPayload {
       (value.limit === undefined || (isNonNegativeInteger(value.limit) && value.limit > 0 && value.limit <= 256 * 1024));
   }
   if (value.name === "list_sessions") return true;
-  if (value.name === "get_session") return isString(value.sessionId, 256);
+  if (value.name === "get_session" || value.name === "resume_session") return isString(value.sessionId, 256);
+  if (value.name === "new_session") return true;
+  if (value.name === "rename_session") return isString(value.title, 256) && value.title.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(value.title);
   return false;
 }
 
@@ -547,7 +619,8 @@ function isCollabEvent(value: unknown): value is CollabEvent {
       return isTranscriptMessage(value.message);
     case "message_delta":
       return isString(value.messageId, 128) && (value.channel === "text" || value.channel === "thinking") &&
-        typeof value.delta === "string" && value.delta.length <= MAX_TRANSCRIPT_TEXT;
+        typeof value.delta === "string" && value.delta.length <= MAX_TRANSCRIPT_TEXT &&
+        (value.partIndex === undefined || (isNonNegativeInteger(value.partIndex) && value.partIndex <= 499));
     case "tool_started":
     case "tool_finished":
       return isToolExecution(value.tool);
@@ -673,17 +746,8 @@ function boundedTranscriptMessage(message: TranscriptMessage): { value: Transcri
   const text = safePrefix(message.text, MAX_TRANSCRIPT_TEXT);
   const thinking = safePrefix(message.thinking, MAX_TRANSCRIPT_TEXT);
   return {
-    value: {
-      id: message.id,
-      role: message.role,
-      text,
-      thinking,
-      timestamp: message.timestamp,
-      status: message.status,
-      toolName: message.toolName,
-      toolCallId: message.toolCallId,
-    },
-    truncated: text.length !== message.text.length || thinking.length !== message.thinking.length,
+    value: compactTranscriptMessage(message, text, thinking),
+    truncated: message.partsTruncated === true || text.length !== message.text.length || thinking.length !== message.thinking.length,
   };
 }
 
@@ -697,6 +761,7 @@ function boundedToolExecution(tool: ToolExecution): { value: ToolExecution; trun
       argsText,
       output,
       status: tool.status,
+      ...toolExtras(tool),
     },
     truncated: argsText.length !== tool.argsText.length || output.length !== tool.output.length,
   };
@@ -713,7 +778,12 @@ export function canonicalCommandPayload(payload: CommandPayload): CommandPayload
         name: "prompt",
         content: payload.content,
         ...(payload.delivery === undefined ? {} : { delivery: payload.delivery }),
+        ...(payload.files === undefined ? {} : { files: [...payload.files] }),
       };
+    case "list_commands":
+      return { name: "list_commands" };
+    case "run_command":
+      return { name: "run_command", command: payload.command };
     case "abort":
       return { name: "abort" };
     case "set_thinking":
@@ -733,6 +803,12 @@ export function canonicalCommandPayload(payload: CommandPayload): CommandPayload
       return { name: "list_sessions" };
     case "get_session":
       return { name: "get_session", sessionId: payload.sessionId };
+    case "new_session":
+      return { name: "new_session" };
+    case "rename_session":
+      return { name: "rename_session", title: payload.title };
+    case "resume_session":
+      return { name: "resume_session", sessionId: payload.sessionId };
     default:
       throw new ProtocolDecodeError("Invalid command payload");
   }
@@ -755,6 +831,7 @@ export function canonicalEvent(event: CollabEvent): CollabEvent {
           status: event.message.status,
           toolName: event.message.toolName,
           toolCallId: event.message.toolCallId,
+          ...messageExtras(event.message),
         },
       };
     case "message_delta":
@@ -763,6 +840,7 @@ export function canonicalEvent(event: CollabEvent): CollabEvent {
         messageId: event.messageId,
         channel: event.channel,
         delta: event.delta,
+        ...(event.partIndex === undefined ? {} : { partIndex: event.partIndex }),
       };
     case "tool_started":
     case "tool_finished":
@@ -774,6 +852,7 @@ export function canonicalEvent(event: CollabEvent): CollabEvent {
           argsText: event.tool.argsText,
           output: event.tool.output,
           status: event.tool.status,
+          ...toolExtras(event.tool),
         },
       };
     case "tool_updated":
@@ -918,17 +997,8 @@ function canonicalSnapshot(
   const normalizedMessages = messages.map((message) => {
     const text = safePrefix(message.text, MAX_TRANSCRIPT_TEXT);
     const thinking = safePrefix(message.thinking, MAX_TRANSCRIPT_TEXT);
-    normalizedHistoryTruncated ||= text.length !== message.text.length || thinking.length !== message.thinking.length;
-    return {
-      id: message.id,
-      role: message.role,
-      text,
-      thinking,
-      timestamp: message.timestamp,
-      status: message.status,
-      toolName: message.toolName,
-      toolCallId: message.toolCallId,
-    };
+    normalizedHistoryTruncated ||= message.partsTruncated === true || text.length !== message.text.length || thinking.length !== message.thinking.length;
+    return compactTranscriptMessage(message, text, thinking);
   });
   const normalizedTools = tools.map((tool) => {
     const argsText = safePrefix(tool.argsText, MAX_TOOL_OUTPUT);
@@ -940,6 +1010,7 @@ function canonicalSnapshot(
       argsText,
       output,
       status: tool.status,
+      ...toolExtras(tool),
     };
   });
   return {
@@ -956,6 +1027,8 @@ function canonicalSnapshot(
     messages: normalizedMessages,
     historyTruncated: normalizedHistoryTruncated,
     tools: normalizedTools,
+    ...(snapshot.sessionControl === undefined ? {} : { sessionControl: snapshot.sessionControl }),
+    ...(snapshot.inputAssist === undefined ? {} : { inputAssist: snapshot.inputAssist }),
     lastEventSeq,
   };
 }
@@ -992,10 +1065,27 @@ export function applyEvent(snapshot: SessionSnapshot, envelope: EventEnvelope): 
         ? { ...message, text: appendBounded(message.text, event.delta, MAX_TRANSCRIPT_TEXT) }
         : { ...message, thinking: appendBounded(message.thinking, event.delta, MAX_TRANSCRIPT_TEXT) };
       const previousLength = event.channel === "text" ? message.text.length : message.thinking.length;
+      if (event.partIndex !== undefined || message.parts !== undefined) {
+        if (event.partIndex === undefined || message.parts === undefined || message.role !== "assistant") {
+          delete updated.parts;
+          updated.partsTruncated = true;
+        } else {
+          const existing = message.parts.find(part => part.index === event.partIndex);
+          if (existing && existing.type !== event.channel) throw new Error("Message part type conflicts with delta channel");
+          const text = existing?.text ?? "";
+          if (text.length + event.delta.length > MAX_TRANSCRIPT_TEXT) {
+            delete updated.parts;
+            updated.partsTruncated = true;
+          } else {
+            const part: TranscriptPart = { index: event.partIndex, type: event.channel, text: text + event.delta };
+            updated.parts = [...message.parts.filter(item => item.index !== event.partIndex), part].sort((a, b) => a.index - b.index);
+          }
+        }
+      }
       return {
         ...next,
         messages: upsertMessage(next.messages, updated),
-        historyTruncated: next.historyTruncated || previousLength + event.delta.length > MAX_TRANSCRIPT_TEXT,
+        historyTruncated: next.historyTruncated || updated.partsTruncated === true || previousLength + event.delta.length > MAX_TRANSCRIPT_TEXT,
       };
     }
     case "tool_started":
@@ -1021,6 +1111,7 @@ export function applyEvent(snapshot: SessionSnapshot, envelope: EventEnvelope): 
               argsText: tool.argsText,
               output: safePrefix(event.output, MAX_TOOL_OUTPUT),
               status: tool.status,
+              ...toolExtras(tool),
             }),
             historyTruncated: next.historyTruncated || event.output.length > MAX_TOOL_OUTPUT,
           }

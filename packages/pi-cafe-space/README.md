@@ -1,8 +1,10 @@
 # @cafecodework/pi-cafe-space
 
+> **换机器继续开发：先读 [开发交接说明](docs/DEVELOPMENT_HANDOFF.md)。** 当前 Go/React 候选使用 `npm run refactor:pack`；下方保留的普通 build/install 命令仍对应旧生产入口，不是新候选的构建方式。本机凭据、会话、构建产物和运行目录不随 Git 迁移。
+
 Pi Cafe Space 让电脑上的原生 Pi CLI 和手机或桌面浏览器通过 HTTP/WebSocket relay 参与同一个实时 Pi 会话。
 
-relay 只负责连接、认证、房间、事件转发和短期内存状态，不创建第二个 Pi runtime，也不读取或写入 Pi session JSONL。
+默认 relay 只负责连接、认证、房间、事件转发和短期内存状态。Go 候选另有可选的 [独立后台会话](docs/MANAGED_SESSIONS.md)：在本机明确配置的项目中启动新的原生 Pi RPC 进程，不切换现有客户端，也不让两个 runtime 同时拥有同一会话。Relay 不写入 Pi session JSONL。
 
 ```text
 Web/PWA ---- WebSocket ---- Pi Cafe Space relay

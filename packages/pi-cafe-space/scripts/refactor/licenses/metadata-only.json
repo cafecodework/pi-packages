@@ -1,0 +1,14 @@
+{
+  "react-remove-scroll-bar@2.3.8": {
+    "license": "MIT",
+    "attribution": "Anton Korzunov <thekashey@gmail.com> (npm author field)",
+    "repository": "https://github.com/theKashey/react-remove-scroll-bar",
+    "gitHead": "b3b1287aad81def2e2ae707274b74531b61ddbaf"
+  },
+  "use-composed-ref@1.4.0": {
+    "license": "MIT",
+    "attribution": "Andarist/use-composed-ref (npm repository field; no copyright notice supplied)",
+    "repository": "https://github.com/Andarist/use-composed-ref",
+    "gitHead": "ea2c9d969f2f90a349f4c99338b806423824cea2"
+  }
+}

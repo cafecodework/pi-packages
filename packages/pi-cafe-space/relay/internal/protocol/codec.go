@@ -3,6 +3,7 @@ package protocol
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 const MaxFrameBytes = 256 * 1024
@@ -70,13 +71,40 @@ func canonicalModel(v any) any {
 	}
 	return selectFields(v.(Object), "provider", "id")
 }
+func validParts(v any) bool {
+	a, ok := v.([]any)
+	if !ok || len(a) > 500 {
+		return false
+	}
+	previous := float64(-1)
+	for _, value := range a {
+		p, ok := value.(Object)
+		if !ok || !integer(p["index"], 499) || p["index"].(float64) <= previous {
+			return false
+		}
+		previous = p["index"].(float64)
+		switch p["type"] {
+		case "text", "thinking":
+			if !text(p["text"], maxText, true) {
+				return false
+			}
+		case "tool-call":
+			if !text(p["toolCallId"], 256, false) || !text(p["toolName"], 256, false) || !text(p["argsText"], 4096, true) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
 func validMessage(v any) bool {
 	o, ok := v.(Object)
-	return ok && text(o["id"], 128, false) && one(o["role"], "user", "assistant", "tool", "system") && text(o["text"], maxText, true) && text(o["thinking"], maxText, true) && finite(o["timestamp"]) && one(o["status"], "streaming", "complete", "error") && nullable(o, "toolName", 256) && nullable(o, "toolCallId", 256)
+	return ok && text(o["id"], 128, false) && one(o["role"], "user", "assistant", "tool", "system") && text(o["text"], maxText, true) && text(o["thinking"], maxText, true) && finite(o["timestamp"]) && one(o["status"], "streaming", "complete", "error") && nullable(o, "toolName", 256) && nullable(o, "toolCallId", 256) && optional(o, "parts", func(v any) bool { return o["role"] == "assistant" && validParts(v) }) && optional(o, "partsTruncated", boolean) && optional(o, "toolIsError", func(v any) bool { return o["role"] == "tool" && boolean(v) })
 }
 func validTool(v any) bool {
 	o, ok := v.(Object)
-	return ok && text(o["toolCallId"], 256, false) && text(o["toolName"], 256, false) && text(o["argsText"], maxText, true) && text(o["output"], maxText, true) && one(o["status"], "running", "complete", "error")
+	return ok && text(o["toolCallId"], 256, false) && text(o["toolName"], 256, false) && text(o["argsText"], maxText, true) && text(o["output"], maxText, true) && one(o["status"], "running", "complete", "error") && optional(o, "parentMessageId", str(128))
 }
 func array(v any, max int, check func(any) bool) bool {
 	a, ok := v.([]any)
@@ -92,7 +120,7 @@ func array(v any, max int, check func(any) bool) bool {
 }
 func validSnapshot(v any) bool {
 	o, ok := v.(Object)
-	return ok && o["protocolVersion"] == float64(1) && text(o["streamId"], 128, false) && text(o["sessionId"], 256, false) && nullable(o, "sessionName", 256) && text(o["cwd"], 16384, true) && nullable(o, "activeLeafId", 128) && hasModel(o, "model") && thinking(o["thinkingLevel"]) && phase(o["phase"]) && boolean(o["hasPendingMessages"]) && array(o["messages"], 1000, validMessage) && optional(o, "historyTruncated", boolean) && array(o["tools"], 500, validTool) && integer(o["lastEventSeq"], MaxEventSequence)
+	return ok && o["protocolVersion"] == float64(1) && text(o["streamId"], 128, false) && text(o["sessionId"], 256, false) && nullable(o, "sessionName", 256) && text(o["cwd"], 16384, true) && nullable(o, "activeLeafId", 128) && hasModel(o, "model") && thinking(o["thinkingLevel"]) && phase(o["phase"]) && boolean(o["hasPendingMessages"]) && optional(o, "sessionControl", boolean) && optional(o, "inputAssist", boolean) && array(o["messages"], 1000, validMessage) && optional(o, "historyTruncated", boolean) && array(o["tools"], 500, validTool) && integer(o["lastEventSeq"], MaxEventSequence)
 }
 func validHost(v any) bool {
 	o, ok := v.(Object)
@@ -105,9 +133,15 @@ func validCommand(v any) bool {
 	}
 	switch o["name"] {
 	case "prompt":
-		return text(o["content"], maxText, false) && optional(o, "delivery", func(v any) bool { return one(v, "steer", "followUp") })
-	case "abort", "list_sessions":
+		return text(o["content"], maxText, false) && optional(o, "delivery", func(v any) bool { return one(v, "steer", "followUp") }) && optional(o, "files", func(v any) bool { return array(v, 8, str(4096)) })
+	case "abort", "list_sessions", "new_session", "list_commands":
 		return true
+	case "run_command":
+		s, ok := o["command"].(string)
+		return ok && text(s, maxText, false) && strings.HasPrefix(s, "/") && strings.IndexFunc(s, func(r rune) bool { return r < 9 || r == 11 || r == 12 || (r > 13 && r < 32) || r == 127 }) < 0
+	case "rename_session":
+		s, ok := o["title"].(string)
+		return ok && text(s, 256, false) && strings.Trim(s, "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff") != "" && strings.IndexFunc(s, func(r rune) bool { return r < 32 || r == 127 }) < 0
 	case "set_thinking":
 		return thinking(o["level"])
 	case "set_model":
@@ -116,7 +150,7 @@ func validCommand(v any) bool {
 		return text(o["path"], 4096, true)
 	case "read_file":
 		return text(o["path"], 4096, true) && optional(o, "offset", func(v any) bool { return integer(v, 100000000) }) && optional(o, "limit", func(v any) bool { return integer(v, MaxFrameBytes) && v.(float64) > 0 })
-	case "get_session":
+	case "get_session", "resume_session":
 		return text(o["sessionId"], 256, false)
 	}
 	return false
@@ -132,7 +166,7 @@ func validEvent(v any) bool {
 	case "message_started", "message_finished":
 		return validMessage(o["message"])
 	case "message_delta":
-		return text(o["messageId"], 128, false) && one(o["channel"], "text", "thinking") && text(o["delta"], maxText, true)
+		return text(o["messageId"], 128, false) && one(o["channel"], "text", "thinking") && text(o["delta"], maxText, true) && optional(o, "partIndex", func(v any) bool { return integer(v, 499) })
 	case "tool_started", "tool_finished":
 		return validTool(o["tool"])
 	case "tool_updated":
@@ -151,9 +185,13 @@ func validEvent(v any) bool {
 func canonicalCommand(o Object) Object {
 	switch o["name"] {
 	case "prompt":
-		return selectFields(o, "name", "content", "delivery")
-	case "abort", "list_sessions":
+		return selectFields(o, "name", "content", "delivery", "files")
+	case "abort", "list_sessions", "new_session", "list_commands":
 		return selectFields(o, "name")
+	case "run_command":
+		return selectFields(o, "name", "command")
+	case "rename_session":
+		return selectFields(o, "name", "title")
 	case "set_thinking":
 		return selectFields(o, "name", "level")
 	case "set_model":
@@ -162,16 +200,29 @@ func canonicalCommand(o Object) Object {
 		return selectFields(o, "name", "path")
 	case "read_file":
 		return selectFields(o, "name", "path", "offset", "limit")
-	case "get_session":
+	case "get_session", "resume_session":
 		return selectFields(o, "name", "sessionId")
 	}
 	return nil
 }
 func canonicalMessage(o Object) Object {
-	return selectFields(o, "id", "role", "text", "thinking", "timestamp", "status", "toolName", "toolCallId")
+	out := selectFields(o, "id", "role", "text", "thinking", "timestamp", "status", "toolName", "toolCallId", "partsTruncated", "toolIsError")
+	if a, ok := o["parts"].([]any); ok {
+		parts := make([]any, len(a))
+		for i, value := range a {
+			p := value.(Object)
+			if p["type"] == "tool-call" {
+				parts[i] = selectFields(p, "index", "type", "toolCallId", "toolName", "argsText")
+			} else {
+				parts[i] = selectFields(p, "index", "type", "text")
+			}
+		}
+		out["parts"] = parts
+	}
+	return out
 }
 func canonicalTool(o Object) Object {
-	return selectFields(o, "toolCallId", "toolName", "argsText", "output", "status")
+	return selectFields(o, "toolCallId", "toolName", "argsText", "output", "status", "parentMessageId")
 }
 func canonicalEvent(o Object) Object {
 	switch o["kind"] {
@@ -180,7 +231,7 @@ func canonicalEvent(o Object) Object {
 	case "message_started", "message_finished":
 		return Object{"kind": o["kind"], "message": canonicalMessage(o["message"].(Object))}
 	case "message_delta":
-		return selectFields(o, "kind", "messageId", "channel", "delta")
+		return selectFields(o, "kind", "messageId", "channel", "delta", "partIndex")
 	case "tool_started", "tool_finished":
 		return Object{"kind": o["kind"], "tool": canonicalTool(o["tool"].(Object))}
 	case "tool_updated":
@@ -197,17 +248,24 @@ func canonicalEvent(o Object) Object {
 	return nil
 }
 func canonicalSnapshot(o Object) Object {
-	out := selectFields(o, "protocolVersion", "streamId", "sessionId", "sessionName", "cwd", "activeLeafId", "thinkingLevel", "phase", "hasPendingMessages", "lastEventSeq")
+	out := selectFields(o, "protocolVersion", "streamId", "sessionId", "sessionName", "cwd", "activeLeafId", "thinkingLevel", "phase", "hasPendingMessages", "sessionControl", "inputAssist", "lastEventSeq")
 	out["model"] = canonicalModel(o["model"])
 	out["historyTruncated"] = o["historyTruncated"] == true
 	messages := []any{}
 	for _, v := range o["messages"].([]any) {
 		m := canonicalMessage(v.(Object))
+		if m["partsTruncated"] == true {
+			out["historyTruncated"] = true
+		}
 		for _, k := range []string{"text", "thinking"} {
 			s := m[k].(string)
 			m[k] = prefix(s, maxText)
 			if m[k] != s {
 				out["historyTruncated"] = true
+				if _, structured := m["parts"]; structured {
+					delete(m, "parts")
+					m["partsTruncated"] = true
+				}
 			}
 		}
 		messages = append(messages, m)

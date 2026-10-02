@@ -87,7 +87,7 @@ function inputText(test: Fixture): string {
   }
   return text;
 }
-const files = ["codec.json", "reducer.json", "budgets.json"];
+const files = ["codec.json", "reducer.json", "budgets.json", "session-controls.json", "input-assist.json"];
 const fixtures = files.flatMap((name) => load(name) as Fixture[]);
 
 describe("wire v1 frozen fixtures", () => {
@@ -101,7 +101,7 @@ describe("wire v1 frozen fixtures", () => {
       if (message.type === "event") events.add(String(record(message.event).kind));
     }
     expect([...types].sort()).toEqual(["hello", "welcome", "host_status", "snapshot", "event", "command", "routed_command", "host_command_result", "command_result", "error"].sort());
-    expect([...commands].sort()).toEqual(["prompt", "abort", "set_thinking", "set_model", "list_dir", "read_file", "list_sessions", "get_session"].sort());
+    expect([...commands].sort()).toEqual(["prompt", "abort", "set_thinking", "set_model", "list_dir", "read_file", "list_sessions", "get_session", "new_session", "rename_session", "resume_session", "list_commands", "run_command"].sort());
     expect([...events].sort()).toEqual(["session_state", "message_started", "message_delta", "message_finished", "tool_started", "tool_updated", "tool_finished", "model_changed", "thinking_changed", "ui_wait", "notice"].sort());
   });
   for (const test of fixtures) it(test.id, () => {

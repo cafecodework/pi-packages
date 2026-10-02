@@ -12,6 +12,7 @@ export interface HostScope {
     readonly cwd: string;
 }
 export const scopeKey = (scope: HostScope): string => JSON.stringify([scope.roomId, scope.hostId, scope.streamId, scope.sessionId, scope.cwd]);
+export const historyCacheKey = (scope: HostScope, revision: number, command: string, sessionId: string | null = null) => JSON.stringify([scopeKey(scope), revision, command, sessionId]);
 export interface HostState {
     info: HostInfo;
     snapshot: SessionSnapshot | null;

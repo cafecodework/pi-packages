@@ -222,6 +222,35 @@ func (r *room) routeCommand(c *Connection, m object) {
 		notReady()
 		return
 	}
+	_, hasFiles := payload["files"]
+	if payload["name"] == "list_commands" || payload["name"] == "run_command" || payload["name"] == "prompt" && hasFiles {
+		if s["inputAssist"] != true {
+			reply("INPUT_ASSIST_UNAVAILABLE", "Reload Pi to enable commands and file references")
+			return
+		}
+		if m["expectedSessionId"] == nil || m["expectedCwd"] == nil {
+			reply("STALE_SESSION", "Input actions require explicit session and project fences")
+			return
+		}
+		if payload["name"] == "run_command" && (s["phase"] != "idle" || s["hasPendingMessages"] != false) {
+			reply("SESSION_BUSY", "Wait for Pi to finish before running a command")
+			return
+		}
+	}
+	if payload["name"] == "new_session" || payload["name"] == "rename_session" || payload["name"] == "resume_session" {
+		if s["sessionControl"] != true {
+			reply("SESSION_CONTROL_UNAVAILABLE", "Reload the Pi extension to enable session controls")
+			return
+		}
+		if m["expectedSessionId"] == nil || m["expectedCwd"] == nil {
+			reply("STALE_SESSION", "Session controls require explicit session and project fences")
+			return
+		}
+		if s["phase"] != "idle" || s["hasPendingMessages"] != false {
+			reply("SESSION_BUSY", "Wait for Pi to finish before changing sessions")
+			return
+		}
+	}
 	count := 0
 	for _, p := range h.pending {
 		if p.peer == c.peer {

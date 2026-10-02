@@ -4,6 +4,7 @@ import {
   applyEvent,
   canonicalCommandPayload,
   canonicalEvent,
+  compactTranscriptMessage,
   decodeWireMessage,
   fitCommandResult,
   hasSufficientTokenEntropy,
@@ -221,22 +222,13 @@ function describeError(error: unknown): string {
   return truncateSnapshotText(text, 2_048);
 }
 
-function compactRelaySnapshot(snapshot: SessionSnapshot): SessionSnapshot {
+export function compactRelaySnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   let messageTextTruncated = false;
   let messages = snapshot.messages.slice(-MAX_SNAPSHOT_MESSAGES).map((message) => {
     const text = truncateSnapshotText(message.text, 8_192);
     const thinking = truncateSnapshotText(message.thinking, 8_192);
-    messageTextTruncated ||= text.length !== message.text.length || thinking.length !== message.thinking.length;
-    return {
-      id: message.id,
-      role: message.role,
-      text,
-      thinking,
-      timestamp: message.timestamp,
-      status: message.status,
-      toolName: message.toolName,
-      toolCallId: message.toolCallId,
-    };
+    messageTextTruncated ||= message.partsTruncated === true || text.length !== message.text.length || thinking.length !== message.thinking.length;
+    return compactTranscriptMessage(message, text, thinking);
   });
   let toolTextTruncated = false;
   let tools: ToolExecution[] = snapshot.tools.slice(-MAX_SNAPSHOT_TOOLS).map((tool) => {
@@ -249,6 +241,7 @@ function compactRelaySnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       argsText,
       output,
       status: tool.status,
+      ...(tool.parentMessageId === undefined ? {} : { parentMessageId: tool.parentMessageId }),
     };
   });
   let historyTruncated = snapshot.historyTruncated === true || messages.length < snapshot.messages.length || tools.length < snapshot.tools.length || messageTextTruncated || toolTextTruncated;
@@ -263,6 +256,8 @@ function compactRelaySnapshot(snapshot: SessionSnapshot): SessionSnapshot {
     thinkingLevel: snapshot.thinkingLevel,
     phase: snapshot.phase,
     hasPendingMessages: snapshot.hasPendingMessages,
+    ...(snapshot.sessionControl === undefined ? {} : { sessionControl: snapshot.sessionControl }),
+    ...(snapshot.inputAssist === undefined ? {} : { inputAssist: snapshot.inputAssist }),
     messages,
     historyTruncated,
     tools,
@@ -280,6 +275,10 @@ function compactRelaySnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   if (size() > SNAPSHOT_FRAME_BUDGET) {
     messages = messages.length ? [messages[messages.length - 1]!] : [];
     tools = [];
+    historyTruncated = true;
+  }
+  if (size() > SNAPSHOT_FRAME_BUDGET) {
+    messages = messages.map(message => compactTranscriptMessage(message, message.text, message.thinking, true));
     historyTruncated = true;
   }
   const compacted = makeSnapshot();
@@ -1042,6 +1041,24 @@ export function createRelayServer(options: RelayServerOptions): RelayServer {
         message: "The selected Pi host is reconnecting and has not sent its current snapshot yet",
       } satisfies CommandResultMessage);
       return;
+    }
+    if (['list_commands', 'run_command'].includes(command.payload.name) || command.payload.name === 'prompt' && command.payload.files !== undefined) {
+      const code = snapshot.inputAssist !== true ? 'INPUT_ASSIST_UNAVAILABLE'
+        : command.expectedSessionId === undefined || command.expectedCwd === undefined ? 'STALE_SESSION'
+        : command.payload.name === 'run_command' && (snapshot.phase !== 'idle' || snapshot.hasPendingMessages) ? 'SESSION_BUSY' : null;
+      if (code) {
+        safeSend(connection, { type: 'command_result', hostId: host.hostId, requestId: command.requestId, status: 'rejected', code, message: code } satisfies CommandResultMessage);
+        return;
+      }
+    }
+    if (['new_session', 'rename_session', 'resume_session'].includes(command.payload.name)) {
+      const code = snapshot.sessionControl !== true ? 'SESSION_CONTROL_UNAVAILABLE'
+        : command.expectedSessionId === undefined || command.expectedCwd === undefined ? 'STALE_SESSION'
+        : snapshot.phase !== 'idle' || snapshot.hasPendingMessages ? 'SESSION_BUSY' : null;
+      if (code) {
+        safeSend(connection, { type: 'command_result', hostId: host.hostId, requestId: command.requestId, status: 'rejected', code, message: code } satisfies CommandResultMessage);
+        return;
+      }
     }
     const clientPendingCount = [...host.pending.values()].filter((pending) => pending.peerId === connection.peerId).length;
     if (host.pending.size >= MAX_PENDING_COMMANDS_PER_HOST || clientPendingCount >= MAX_PENDING_COMMANDS_PER_CLIENT) {

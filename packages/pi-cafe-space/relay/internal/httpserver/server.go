@@ -19,6 +19,13 @@ var securityHeaders = map[string]string{
 }
 
 func NewHandler(assets *webui.Assets, websocketHandler ...http.Handler) http.Handler {
+	var ws http.Handler
+	if len(websocketHandler) == 1 {
+		ws = websocketHandler[0]
+	}
+	return NewManagedHandler(assets, ws, nil)
+}
+func NewManagedHandler(assets *webui.Assets, websocketHandler http.Handler, managedHandler http.Handler) http.Handler {
 	router := gin.New()
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
@@ -52,15 +59,19 @@ func NewHandler(assets *webui.Assets, websocketHandler ...http.Handler) http.Han
 		}
 		notFound(c)
 	})
-	if len(websocketHandler) == 1 && websocketHandler[0] != nil {
-		router.GET("/ws", func(c *gin.Context) { websocketHandler[0].ServeHTTP(c.Writer, c.Request) })
+	if websocketHandler != nil {
+		router.GET("/ws", func(c *gin.Context) { websocketHandler.ServeHTTP(c.Writer, c.Request) })
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		router.Handle(method, "/healthz", func(c *gin.Context) {
 			body(c, 200, "application/json; charset=utf-8", []byte(`{"ok":true,"protocolVersion":1}`))
 		})
 		router.Handle(method, "/api/config", func(c *gin.Context) {
-			body(c, 200, "application/json; charset=utf-8", []byte(`{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main"}`))
+			value := `{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main"}`
+			if managedHandler != nil {
+				value = `{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main","managedSessions":true}`
+			}
+			body(c, 200, "application/json; charset=utf-8", []byte(value))
 		})
 	}
 	// Keep admission outside Gin so rejected encoded paths/methods retain security
@@ -68,6 +79,10 @@ func NewHandler(assets *webui.Assets, websocketHandler ...http.Handler) http.Han
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for k, v := range securityHeaders {
 			w.Header().Set(k, v)
+		}
+		if managedHandler != nil && r.URL.Path == "/api/workspace" && r.URL.RawPath == "" && r.URL.EscapedPath() == r.URL.Path {
+			managedHandler.ServeHTTP(w, r)
+			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")

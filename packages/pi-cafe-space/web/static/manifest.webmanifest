@@ -3,8 +3,8 @@
   "short_name": "Pi Cafe Space",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b1120",
-  "theme_color": "#101827",
+  "background_color": "#1a1511",
+  "theme_color": "#1a1511",
   "icons": [
     {
       "src": "/icon.svg",

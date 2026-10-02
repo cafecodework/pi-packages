@@ -1,6 +1,9 @@
 package protocol
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 func upsert(items []any, item Object, key string, max int) ([]any, bool) {
 	for i, v := range items {
@@ -37,11 +40,15 @@ func ApplyEvent(snapshot, envelope Object) (Object, error) {
 		next["hasPendingMessages"] = e["hasPendingMessages"]
 	case "message_started", "message_finished":
 		m := canonicalMessage(e["message"].(Object))
-		truncated := false
+		truncated := m["partsTruncated"] == true
 		for _, k := range []string{"text", "thinking"} {
 			s := m[k].(string)
 			m[k] = prefix(s, maxText)
 			truncated = truncated || m[k] != s
+			if _, structured := m["parts"]; structured && m[k] != s {
+				delete(m, "parts")
+				m["partsTruncated"] = true
+			}
 		}
 		a, evicted := upsert(next["messages"].([]any), m, "id", 1000)
 		next["messages"] = a
@@ -57,6 +64,39 @@ func ApplyEvent(snapshot, envelope Object) (Object, error) {
 				continue
 			}
 			found = true
+			index, indexed := e["partIndex"]
+			parts, structured := m["parts"].([]any)
+			if indexed || structured {
+				if !indexed || !structured || m["role"] != "assistant" {
+					delete(m, "parts")
+					m["partsTruncated"] = true
+				} else {
+					previous := ""
+					kept := []any{}
+					for _, raw := range parts {
+						part := raw.(Object)
+						if part["index"] == index {
+							if part["type"] != channel {
+								return nil, fmt.Errorf("Message part type conflicts with delta channel")
+							}
+							previous = part["text"].(string)
+						} else {
+							kept = append(kept, part)
+						}
+					}
+					if stringLen(previous)+stringLen(delta) > maxText {
+						delete(m, "parts")
+						m["partsTruncated"] = true
+					} else {
+						kept = append(kept, Object{"index": index, "type": channel, "text": previous + delta})
+						sort.Slice(kept, func(i, j int) bool { return kept[i].(Object)["index"].(float64) < kept[j].(Object)["index"].(float64) })
+						m["parts"] = kept
+					}
+				}
+				if m["partsTruncated"] == true {
+					next["historyTruncated"] = true
+				}
+			}
 			s := m[channel].(string)
 			m[channel] = prefix(s+delta, maxText)
 			if stringLen(s)+stringLen(delta) > maxText {

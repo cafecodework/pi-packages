@@ -100,8 +100,9 @@ describe("Go HTTP + WS + hub frozen traces",()=>{
     if(!enabled) expect(process.env.PI_CAFE_GO_TRACE_BINARY).toBeUndefined();
     else expect(existsSync(process.env.PI_CAFE_GO_TRACE_BINARY ?? "")).toBe(true);
   });
-  if(enabled) for(const name of readdirSync(new URL("traces/",fixtureRoot)).filter(n=>n.endsWith(".json")).sort()) {
-    const trace=load("traces/"+name) as Trace;
+  const traces = [...readdirSync(new URL("traces/",fixtureRoot)).filter(n=>n.endsWith(".json")).sort().map(name => "traces/"+name), "../parts/transport-trace.json"];
+  if(enabled) for(const name of traces) {
+    const trace=load(name) as Trace;
     it(trace.id,async()=>{
       const binary=process.env.PI_CAFE_GO_TRACE_BINARY;
       if(!binary)throw new Error("Integration test binary not specified");

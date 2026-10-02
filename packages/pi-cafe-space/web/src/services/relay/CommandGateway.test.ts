@@ -22,6 +22,56 @@ function setup() {
 }
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
+it('gates input capabilities, validates inventory, isolates completion reads and never replays command writes', async () => {
+    const x = setup();
+    expect((await x.gateway.execute({ name: 'list_commands' }, x.scope)).code).toBe('INPUT_ASSIST_UNAVAILABLE');
+    expect((await x.gateway.execute({ name: 'prompt', content: 'read', files: ['a'] }, x.scope)).code).toBe('INPUT_ASSIST_UNAVAILABLE');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, inputAssist: true } });
+    expect((await x.gateway.execute({ name: 'run_command', command: '/review' }, x.scope)).code).toBe('SESSION_BUSY');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, inputAssist: true, phase: 'idle' } });
+    const panel = x.gateway.execute({ name: 'list_dir', path: '.' }, x.scope);
+    const completion = x.gateway.execute({ name: 'list_dir', path: 'src' }, x.scope, { transient: true });
+    x.result(1, 'applied', { kind: 'directory', path: 'src', entries: [], truncated: false });
+    expect((await completion).status).toBe('applied'); expect(x.store.getSnapshot().panels).toEqual({});
+    x.result(0, 'applied', { kind: 'directory', path: '.', entries: [], truncated: false });
+    expect((await panel).status).toBe('applied'); expect(x.store.getSnapshot().panels.directory).toMatchObject({ path: '.' });
+    const invalid = x.gateway.execute({ name: 'list_commands' }, x.scope);
+    x.result(2, 'applied', { kind: 'commands', commands: [{ name: '../bad', source: 'extension', description: '' }], truncated: false });
+    expect((await invalid).code).toBe('RESULT_INVALID');
+    const write = x.gateway.execute({ name: 'run_command', command: '/review' }, x.scope);
+    expect((await x.gateway.execute({ name: 'run_command', command: '/review' }, x.scope)).code).toBe('SESSION_BUSY');
+    x.result(3, 'rejected', undefined, 'HOST_NOT_READY'); expect((await write).code).toBe('HOST_NOT_READY');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, inputAssist: true, phase: 'idle' } });
+    expect(x.sent).toHaveLength(4);
+    const pending = x.gateway.execute({ name: 'list_commands' }, x.scope); x.store.changeView();
+    expect((await pending).code).toBe('VIEW_CHANGED'); expect(x.gateway.stats().count).toBe(0);
+    x.gateway.dispose(); x.store.dispose();
+});
+it('gates session controls by capability and idle state, serializes duplicate actions and never retries a switch', async () => {
+    const x = setup();
+    expect((await x.gateway.execute({ name: 'new_session' }, x.scope)).code).toBe('SESSION_CONTROL_UNAVAILABLE');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, sessionControl: true } });
+    expect((await x.gateway.execute({ name: 'new_session' }, x.scope)).code).toBe('SESSION_BUSY');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, sessionControl: true, phase: 'idle', hasPendingMessages: true } });
+    expect((await x.gateway.execute({ name: 'new_session' }, x.scope)).code).toBe('SESSION_BUSY');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, sessionControl: true, phase: 'idle' } });
+    const first = x.gateway.execute({ name: 'resume_session', sessionId: 'saved/%2F:id' }, x.scope);
+    expect(x.sent[0]).toMatchObject({ expectedSessionId: 'session', expectedCwd: 'C:/project', payload: { name: 'resume_session', sessionId: 'saved/%2F:id' } });
+    expect((await x.gateway.execute({ name: 'new_session' }, x.scope)).code).toBe('SESSION_BUSY');
+    x.result(0, 'rejected', undefined, 'SESSION_CANCELLED');
+    expect((await first).code).toBe('SESSION_CANCELLED');
+    const timed = x.gateway.execute({ name: 'new_session' }, x.scope);
+    x.result(1, 'rejected', undefined, 'HOST_TIMEOUT');
+    expect((await timed).status).toBe('unknown');
+    expect(x.sent).toHaveLength(2);
+    const accepted = x.gateway.execute({ name: 'new_session' }, x.scope);
+    x.result(2, 'dispatched');
+    expect((await accepted).status).toBe('dispatched');
+    x.emit({ type: 'snapshot', hostId: 'h', snapshot: { ...baseSnapshot, streamId: 'new', sessionId: 'next', sessionControl: true, phase: 'idle' } });
+    expect(x.store.scope()?.sessionId).toBe('next');
+    expect(x.sent).toHaveLength(3);
+    x.gateway.dispose(); x.store.dispose();
+});
 it('registers before sending, validates data binding and keeps running after dispatched', async () => {
     const x = setup();
     x.client.sendCommand = (m) => { x.sent.push(m); x.result(0, 'dispatched'); };

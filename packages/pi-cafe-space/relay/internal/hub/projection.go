@@ -46,10 +46,17 @@ func compactSnapshot(s object) object {
 	ms, ts := []any{}, []any{}
 	for _, v := range messages {
 		m := copyObject(v.(object))
+		changed := false
+		truncated = truncated || m["partsTruncated"] == true
 		for _, k := range []string{"text", "thinking"} {
 			text := m[k].(string)
 			m[k] = truncate(text, 8192)
 			truncated = truncated || m[k] != text
+			changed = changed || m[k] != text
+		}
+		if _, ok := m["parts"]; ok && changed {
+			delete(m, "parts")
+			m["partsTruncated"] = true
 		}
 		ms = append(ms, m)
 	}
@@ -99,6 +106,19 @@ func compactSnapshot(s object) object {
 		}
 		out["messages"] = ms
 		out["tools"] = []any{}
+		out["historyTruncated"] = true
+	}
+	if frame() > snapshotBudget {
+		kept := []any{}
+		for _, raw := range out["messages"].([]any) {
+			m := copyObject(raw.(object))
+			if _, ok := m["parts"]; ok {
+				delete(m, "parts")
+				m["partsTruncated"] = true
+			}
+			kept = append(kept, m)
+		}
+		out["messages"] = kept
 		out["historyTruncated"] = true
 	}
 	if frame() > snapshotBudget {

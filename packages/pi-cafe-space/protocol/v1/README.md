@@ -88,6 +88,30 @@ Run in package: `npm.cmd run refactor:contracts:test`. Existing `npm.cmd run pi-
 - `traces/*.json`: connect uses a unique label per socket generation; send/receive carry message templates; close/expectClose assert peer close; advance moves application timeout clock in milliseconds. Every receive compares the next FIFO message, including all keys. `$bind` captures a fresh UUID once; `$ref` reuses it thereafter. No dropping IDs or unordered subset matching. Socket listeners are registered at construction before sending; FIFO retains arrivals before the next receive step. Final ping/pong barriers then assert no extra queued messages.
 - Runtime timers are fake only for deterministic traces; assertion deadlines and I/O remain real. Golden tests never run a model or access Pi JSONL.
 
+## Session-control extension (post-baseline)
+
+The original eight-command corpus is unchanged. `session-controls.json` adds three commands and an optional `SessionSnapshot.sessionControl: boolean`. Missing/false capability means unsupported, not implicit permission. Both codecs preserve this field; no protocol-version bump or new transport is introduced.
+
+| name | Additional fields | Native Pi operation |
+| --- | --- | --- |
+| new_session | none | `ExtensionCommandContext.newSession()` |
+| rename_session | title:S(256), nonblank after ECMAScript trim; reject U+0000–001F and U+007F | `pi.setSessionName(title.trim())` on the current session |
+| resume_session | sessionId:S(256), opaque ID only | `ExtensionCommandContext.switchSession(validatedPath)` |
+
+All three are authenticated writes, require an online/ready capability-advertising host and explicit matching stream/session/cwd fences, and reject running/local-UI/pending-message states with `SESSION_BUSY`. The extension rechecks native context/idle state after asynchronous history lookup. Resume reuses the bounded project/session-directory validation used for reads, then requires a nonempty matching project. Web and Relay never edit session files or create AgentSessions.
+
+Pi's cancellable before-switch hooks remain authoritative. Cancellation returns `rejected/SESSION_CANCELLED`. Accepted new/resume commands return **dispatched**, not applied, from the old host's native shutdown hook before closing its socket; the replacement Pi extension supplies a fresh snapshot. That acknowledgement is handoff, not proof of successful replacement. Disconnect/timeout/ambiguous replies remain unknown writes and must not be auto-retried. Rename uses the existing `session_info_changed` projection path and does not rotate the stream. A one-use private command-context bridge is never populated from arbitrary client text; an input-hook fallback consumes its reserved text rather than allowing it to become a model request on incompatible runtimes.
+
+## Input-assistance extension (post-baseline)
+
+`input-assist.json` adds twelve shared TS/Go fixtures without altering the original corpus. `SessionSnapshot.inputAssist?: boolean` advertises command discovery/execution and file references. Absent/false means unsupported; do not silently drop references when talking to old hosts.
+
+- `list_commands`: no additional fields. Online read; result `{kind:"commands", truncated:boolean, commands:[{name:S(128), description:E(160), source:"extension"|"prompt"|"skill"}]}` has at most 200 entries. Names contain no whitespace, slashes, backslashes or ASCII controls. The host uses `pi.getCommands()`, preserves first/native precedence for duplicate names, and excludes private `collab-*` commands. No `sourceInfo` or absolute resource paths are transmitted.
+- `run_command`: `command:S(65536)` beginning with `/`; controls other than tab/LF/CR are rejected. Authenticated write, online/ready, explicit stream/session/cwd fences, idle/no-pending only. The host validates the command against its current bounded inventory before `pi.sendUserMessage(..., {expandPromptTemplates:true})`. Unknown, private and interactive-only commands reject `COMMAND_UNAVAILABLE`; accepted results are **dispatched**, never a claim that async command work has succeeded. Native local UI still needs the terminal. No automatic write retry.
+- `prompt.files?: S(4096)[≤8]`: explicit project-relative UTF-8 text references. The host reuses `readProjectFile` guards (including sensitive paths, broad roots, traversal, link/junction/device names, binary/UTF-8 and descriptor identity checks), deduplicates exact paths, and rejects partial/oversized reads. Maximum 64 KiB per file and 128 KiB total. It appends bounded JSON file data to the original message, then rechecks the native context and delivery state before dispatch. Failure sends no partial prompt; references are read by Pi, not Relay or Web.
+
+All three require the capability and explicit matching session/project fences in Relay and extension. Web completion reads use isolated transient Gateway slots and do not overwrite the file browser; cancellation/view/connection fences still apply. Slash commands and file references share no unbounded cache. The UI maps `/new`, `/name`, `/resume`, `/model` and `/thinking` to existing confirmed session controls/history/settings; these are not additional wire commands. In slash arguments `@` completes paths only; normal messages explicitly send the `files` array. `#` remains ordinary text.
+
 ## Coverage and remaining layers
 
 All ten wire variants, eight commands, eleven events, required/null/unknown fields, UTF-16 vs bytes, exact raw/result budgets, duplicate keys, raw invalid UTF-8/BOM, surrogate/number behavior, bounded result graph, sequence/reducer behavior are executable fixtures. Traces cover auth/role/binary, hello/snapshot timeouts, host replacement, client generations, multi-host ambiguity, room isolation, cwd fence, stale snapshot/event, pending/result dedupe, result association, history poisoning/revision/offline inactivity and command timeout.

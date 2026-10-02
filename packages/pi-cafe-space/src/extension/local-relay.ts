@@ -92,7 +92,7 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
-function relayEnvironment(bindHost: string, port: string, hostToken: string): NodeJS.ProcessEnv {
+function relayEnvironment(bindHost: string, port: string, hostToken: string, parent: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   // The relay never needs the Pi/provider environment. Pass only the small set
   // of OS variables needed to launch a detached Node process plus relay
@@ -105,15 +105,15 @@ function relayEnvironment(bindHost: string, port: string, hostToken: string): No
     "commonprogramw6432", "os", "number_of_processors", "processor_architecture", "processor_identifier",
     "processor_level", "processor_revision",
   ]);
-  for (const [name, value] of Object.entries(process.env)) {
+  for (const [name, value] of Object.entries(parent)) {
     if (value !== undefined && allowedParentNames.has(name.toLowerCase())) environment[name] = value;
   }
   environment.PI_COLLAB_HOST = bindHost;
   environment.PI_COLLAB_PORT = port;
   environment.PI_COLLAB_HOST_TOKEN = hostToken;
-  environment.PI_COLLAB_CLIENT_TOKEN = process.env.PI_COLLAB_CLIENT_TOKEN?.trim() || DEVELOPMENT_CLIENT_TOKEN;
-  if (process.env.PI_COLLAB_ALLOWED_ORIGINS !== undefined) {
-    environment.PI_COLLAB_ALLOWED_ORIGINS = process.env.PI_COLLAB_ALLOWED_ORIGINS;
+  environment.PI_COLLAB_CLIENT_TOKEN = parent.PI_COLLAB_CLIENT_TOKEN?.trim() || DEVELOPMENT_CLIENT_TOKEN;
+  if (parent.PI_COLLAB_ALLOWED_ORIGINS !== undefined) {
+    environment.PI_COLLAB_ALLOWED_ORIGINS = parent.PI_COLLAB_ALLOWED_ORIGINS;
   }
   return environment;
 }
@@ -285,6 +285,9 @@ async function launchRelay(options: StartRelayOptions): Promise<LocalRelayStatus
   }
   return "unavailable";
 }
+
+// Shared pure environment/health helpers; the existing Node default is unchanged.
+export { healthy as localRelayHealthy, relayEnvironment as localRelayEnvironment };
 
 function relayPidPath(packageRoot: string, bindHost: string, port: string): string {
   const lockKey = `${bindHost}-${port}`.replace(/[^a-zA-Z0-9_.-]/g, "_");

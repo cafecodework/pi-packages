@@ -86,7 +86,7 @@ func expandFixture(t *testing.T, v any, values Object) any {
 func TestFrozenFixtures(t *testing.T) {
 	values := fixtureRead(t, "values.json").(Object)
 	count := 0
-	for _, name := range []string{"codec.json", "reducer.json", "budgets.json"} {
+	for _, name := range []string{"codec.json", "reducer.json", "budgets.json", "session-controls.json", "input-assist.json"} {
 		for _, raw := range fixtureRead(t, name).([]any) {
 			f := raw.(Object)
 			count++
@@ -155,7 +155,7 @@ func TestFrozenFixtures(t *testing.T) {
 			})
 		}
 	}
-	if count != 307 {
+	if count != 328 {
 		t.Fatalf("fixture inventory changed: %d", count)
 	}
 }
@@ -178,6 +178,8 @@ func TestJSONSurrogatesAndNumbers(t *testing.T) {
 	}
 }
 func FuzzDecodeWire(f *testing.F) {
+	f.Add([]byte(`{"type":"event","streamId":"s","sessionId":"session","seq":1,"emittedAt":"now","event":{"kind":"message_delta","messageId":"m","channel":"text","delta":"hello","partIndex":0}}`))
+	f.Add([]byte(`{"type":"event","streamId":"s","sessionId":"session","seq":1,"emittedAt":"now","event":{"kind":"message_started","message":{"id":"m","role":"assistant","text":"","thinking":"","timestamp":1,"status":"streaming","toolName":null,"toolCallId":null,"parts":[],"partsTruncated":false}}}`))
 	for _, seed := range []string{`{"type":"error","code":"X","message":"hello"}`, `{"type":"hello","protocolVersion":1,"peerRole":"host","peerId":"h","roomId":"r","token":"t"}`, `{"type":"command_result","requestId":"r","status":"applied","code":null,"message":null,"data":"\ud800"}`, `{}`, `null`, string([]byte{255})} {
 		f.Add([]byte(seed))
 	}

@@ -1,4 +1,4 @@
-import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionAPI, type ExtensionContext, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
   MAX_EVENT_SEQUENCE,
   MAX_FRAME_BYTES,
@@ -6,6 +6,7 @@ import {
   applyEvent,
   canonicalCommandPayload,
   canonicalEvent,
+  compactTranscriptMessage,
   decodeWireMessage,
   isCommandPayload,
   fitCommandResult,
@@ -19,12 +20,13 @@ import {
   type SessionSnapshot,
   type ToolExecution,
   type TranscriptMessage,
+  type TranscriptPart,
 } from "../protocol/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute as isAbsolutePath, relative as relativePath, resolve as resolvePath, sep as pathSeparator } from "node:path";
 import { lstat as lstatPath, realpath as realpathPath } from "node:fs/promises";
 import WebSocket, { type RawData } from "ws";
-import { FileCommandError, listProjectDirectory, readProjectFile } from "./file-commands.js";
+import { FileCommandError, listProjectDirectory, readProjectFile, attachProjectFiles } from "./file-commands.js";
 import { ConnectionWarningReporter } from "./connection-warning.js";
 import { ensureLocalRelay } from "./local-relay.js";
 
@@ -200,7 +202,7 @@ function sameProjectPath(left: string, right: string): boolean {
   }
 }
 
-async function validateSessionPath(ctx: ExtensionContext, sessionPath: string): Promise<void> {
+function currentSessionDirectory(ctx: ExtensionContext): string {
   let sessionDir: unknown;
   try {
     sessionDir = ctx.sessionManager.getSessionDir();
@@ -210,8 +212,12 @@ async function validateSessionPath(ctx: ExtensionContext, sessionPath: string): 
   if (typeof sessionDir !== "string" || !sessionDir) {
     throw new FileCommandError("SESSION_INVALID", "The requested session metadata is invalid");
   }
+  return sessionDir;
+}
+
+async function validateSessionPath(ctx: ExtensionContext, sessionPath: string): Promise<void> {
   const [directory, candidate, linkInfo] = await Promise.all([
-    realpathPath(sessionDir),
+    realpathPath(currentSessionDirectory(ctx)),
     realpathPath(sessionPath),
     lstatPath(sessionPath),
   ]).catch(() => {
@@ -333,10 +339,9 @@ function messageProjectionWasTruncated(message: unknown): boolean {
           }
           break;
         case "toolCall":
-          // Live tool identity and arguments are carried by the structured
-          // tool projection. Historical text alone cannot retain them, so the
-          // projection remains explicitly incomplete.
-          contentWasDropped = true;
+          // Assistant parts now retain actual call identity/arguments. Other
+          // roles still cannot represent a tool call in the text projection.
+          if (message.role !== "assistant") contentWasDropped = true;
           if (typeof part.id !== "string" || typeof part.name !== "string" || !part.id || !part.name ||
               part.name.length > 256 || part.id.length > 256 ||
               !isRecord(part.arguments)) contentWasDropped = true;
@@ -468,7 +473,52 @@ function roleForMessage(role: unknown): TranscriptMessage["role"] | null {
   return null;
 }
 
-function messageProjection(message: unknown, id: string, status: TranscriptMessage["status"]): TranscriptMessage | null {
+function projectParts(content: unknown[]): Pick<TranscriptMessage, "parts" | "partsTruncated"> {
+  const parts: TranscriptPart[] = [];
+  let incomplete = content.length > MAX_CONTENT_PARTS;
+  let bytes = 2;
+  for (let index = 0; index < Math.min(content.length, MAX_CONTENT_PARTS); index++) {
+    const source = content[index];
+    if (!isRecord(source)) { incomplete = true; continue; }
+    let part: TranscriptPart;
+    if (source.type === "text" || source.type === "thinking") {
+      const raw = source.type === "text" ? source.text : source.thinking;
+      if (typeof raw !== "string") { incomplete = true; continue; }
+      const text = truncate(raw, 65_536);
+      incomplete ||= text !== raw;
+      part = { index, type: source.type, text };
+    } else if (source.type === "toolCall") {
+      if (typeof source.id !== "string" || !source.id || source.id.length > 256 ||
+          typeof source.name !== "string" || !source.name || source.name.length > 256) {
+        incomplete = true; continue;
+      }
+      const args = safeJsonWithStatus(source.arguments, 4_096);
+      incomplete ||= args.truncated || !isRecord(source.arguments);
+      part = { index, type: "tool-call", toolCallId: source.id, toolName: source.name, argsText: args.value };
+    } else { incomplete = true; continue; }
+    bytes += Buffer.byteLength(JSON.stringify(part), "utf8") + 1;
+    if (bytes > SNAPSHOT_FRAME_BUDGET - 1_024) return { partsTruncated: true };
+    parts.push(part);
+  }
+  return { parts, ...(incomplete ? { partsTruncated: true } : {}) };
+}
+
+// Rebuilt only from the bounded retained projection. Duplicate occurrences,
+// including two within one message, are deliberately ambiguous. One host owns
+// this index; stream/session/cwd transitions replace rather than merge it.
+export function buildToolParentIndex(messages: readonly TranscriptMessage[]): Map<string, string | null> {
+  const parents = new Map<string, string | null>();
+  for (const message of messages.slice(-100)) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.parts?.slice(0, MAX_CONTENT_PARTS) ?? []) {
+      if (part.type !== "tool-call") continue;
+      parents.set(part.toolCallId, parents.has(part.toolCallId) ? null : message.id);
+    }
+  }
+  return parents;
+}
+
+export function messageProjection(message: unknown, id: string, status: TranscriptMessage["status"]): TranscriptMessage | null {
   if (!isRecord(message)) return null;
   const role = roleForMessage(message.role);
   if (!role) return null;
@@ -495,17 +545,20 @@ function messageProjection(message: unknown, id: string, status: TranscriptMessa
     text: projectedText.value,
     thinking: projectedThinking.value,
     timestamp,
-    status,
+    status: (role === "tool" && message.isError === true) || (role === "assistant" && (message.stopReason === "error" || message.stopReason === "aborted")) ? "error" : status,
+    ...(role === "assistant" ? projectParts(content as unknown[]) : {}),
+    ...(role === "tool" && typeof message.isError === "boolean" ? { toolIsError: message.isError } : {}),
+    ...((role === "tool" && (typeof message.isError !== "boolean" || typeof message.toolCallId !== "string" || !message.toolCallId || message.toolCallId.length > 256)) || projectedText.truncated || projectedThinking.truncated ? { partsTruncated: true } : {}),
     toolName: typeof message.toolName === "string" && message.toolName
       ? truncate(message.toolName, 256)
       : typeof toolCallRecord?.name === "string" && toolCallRecord.name ? truncate(toolCallRecord.name, 256) : null,
     toolCallId: typeof message.toolCallId === "string" && message.toolCallId
-      ? boundedIdentifier(message.toolCallId, 256)
-      : typeof toolCallRecord?.id === "string" && toolCallRecord.id ? boundedIdentifier(toolCallRecord.id, 256) : null,
+      ? message.toolCallId.length <= 256 ? message.toolCallId : null
+      : typeof toolCallRecord?.id === "string" && toolCallRecord.id && toolCallRecord.id.length <= 256 ? toolCallRecord.id : null,
   };
 }
 
-function historicalMessages(entries: readonly unknown[], maxMessages = 100): { messages: TranscriptMessage[]; truncated: boolean } {
+export function historicalMessages(entries: readonly unknown[], maxMessages = 100): { messages: TranscriptMessage[]; truncated: boolean } {
   if (!Array.isArray(entries)) return { messages: [], truncated: true };
   const messages: TranscriptMessage[] = [];
   let messageCount = 0;
@@ -526,7 +579,7 @@ function historicalMessages(entries: readonly unknown[], maxMessages = 100): { m
       const validEntryId = typeof entry.id === "string" && !!entry.id && entry.id.length <= 128;
       const entryId = validEntryId ? entry.id as string : `m-${randomUUID()}`;
       const projection = messageProjection(entry.message, entryId, "complete");
-      if (!validEntryId || messageProjectionWasTruncated(entry.message)) omittedByCompaction = true;
+      if (!validEntryId || projection?.partsTruncated || messageProjectionWasTruncated(entry.message)) omittedByCompaction = true;
       if (!projection) {
         omittedByCompaction = true;
         continue;
@@ -546,11 +599,12 @@ function historicalMessages(entries: readonly unknown[], maxMessages = 100): { m
   const frameBudget = MAX_FRAME_BYTES - 16 * 1024;
   const selectedSize = (): number => Buffer.byteLength(JSON.stringify(selected), "utf8");
   if (selectedSize() > frameBudget) {
+    truncated = true;
     selected = selected.map((message) => {
       const text = truncate(message.text, 8_192);
       const thinking = truncate(message.thinking, 8_192);
       truncated ||= text.length !== message.text.length || thinking.length !== message.thinking.length;
-      return { ...message, text, thinking };
+      return compactTranscriptMessage(message, text, thinking, true);
     });
   }
   while (selected.length > 1 && selectedSize() > frameBudget) {
@@ -558,11 +612,7 @@ function historicalMessages(entries: readonly unknown[], maxMessages = 100): { m
     truncated = true;
   }
   if (selectedSize() > frameBudget) {
-    selected = selected.map((message) => ({
-      ...message,
-      text: truncate(message.text, 1_024),
-      thinking: truncate(message.thinking, 1_024),
-    }));
+    selected = selected.map((message) => compactTranscriptMessage(message, truncate(message.text, 1_024), truncate(message.thinking, 1_024), true));
     truncated = true;
   }
   while (selected.length > 1 && selectedSize() > frameBudget) {
@@ -572,7 +622,7 @@ function historicalMessages(entries: readonly unknown[], maxMessages = 100): { m
   return { messages: selected, truncated };
 }
 
-function transcriptMessageJson(message: TranscriptMessage): JsonValue {
+export function transcriptMessageJson(message: TranscriptMessage): JsonValue {
   return {
     id: message.id,
     role: message.role,
@@ -582,6 +632,9 @@ function transcriptMessageJson(message: TranscriptMessage): JsonValue {
     status: message.status,
     toolName: message.toolName,
     toolCallId: message.toolCallId,
+    ...(message.parts === undefined ? {} : { parts: message.parts.map(part => ({ ...part })) }),
+    ...(message.partsTruncated === undefined ? {} : { partsTruncated: message.partsTruncated }),
+    ...(message.toolIsError === undefined ? {} : { toolIsError: message.toolIsError }),
   };
 }
 
@@ -645,6 +698,8 @@ function historicalSnapshot(pi: ExtensionAPI, ctx: ExtensionContext, streamId: s
     thinkingLevel: isThinkingLevel(currentThinkingLevel) ? currentThinkingLevel : "off",
     phase: idle === true ? "idle" : "running",
     hasPendingMessages: hasPendingMessages === true,
+    sessionControl: true,
+    inputAssist: typeof pi.getCommands === 'function',
     messages: historical.messages,
     historyTruncated: historical.truncated || metadataTruncated,
     tools: [],
@@ -661,24 +716,15 @@ export function compactSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   let messages = (snapshot.messages.length > 100 ? snapshot.messages.slice(-100) : [...snapshot.messages]).map((message) => {
     const text = truncate(message.text, MAX_TEXT_LENGTH);
     const thinking = truncate(message.thinking, MAX_TEXT_LENGTH);
-    messageTextTruncated ||= text.length !== message.text.length || thinking.length !== message.thinking.length;
-    return {
-      id: message.id,
-      role: message.role,
-      text,
-      thinking,
-      timestamp: message.timestamp,
-      status: message.status,
-      toolName: message.toolName,
-      toolCallId: message.toolCallId,
-    };
+    messageTextTruncated ||= message.partsTruncated === true || text.length !== message.text.length || thinking.length !== message.thinking.length;
+    return compactTranscriptMessage(message, text, thinking);
   });
   let toolTextTruncated = false;
   let tools = snapshot.tools.slice(-MAX_SNAPSHOT_TOOLS).map((tool) => {
     const argsText = truncate(tool.argsText, 4_096);
     const output = truncate(tool.output, 8_192);
     toolTextTruncated ||= argsText.length !== tool.argsText.length || output.length !== tool.output.length;
-    return { toolCallId: tool.toolCallId, toolName: tool.toolName, argsText, output, status: tool.status };
+    return { toolCallId: tool.toolCallId, toolName: tool.toolName, argsText, output, status: tool.status, ...(tool.parentMessageId === undefined ? {} : { parentMessageId: tool.parentMessageId }) };
   });
   let historyTruncated = snapshot.historyTruncated === true || messages.length < snapshot.messages.length || snapshot.tools.length > MAX_SNAPSHOT_TOOLS || messageTextTruncated || toolTextTruncated;
   const makeSnapshot = (): SessionSnapshot => ({
@@ -692,6 +738,8 @@ export function compactSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
     thinkingLevel: snapshot.thinkingLevel,
     phase: snapshot.phase,
     hasPendingMessages: snapshot.hasPendingMessages,
+    ...(snapshot.sessionControl === undefined ? {} : { sessionControl: snapshot.sessionControl }),
+    ...(snapshot.inputAssist === undefined ? {} : { inputAssist: snapshot.inputAssist }),
     messages,
     historyTruncated,
     tools,
@@ -708,22 +756,14 @@ export function compactSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   }
   if (snapshotFrameSize(makeSnapshot()) > SNAPSHOT_FRAME_BUDGET) {
     historyTruncated = true;
-    messages = messages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      text: truncate(message.text, 4_096),
-      thinking: truncate(message.thinking, 4_096),
-      timestamp: message.timestamp,
-      status: message.status,
-      toolName: message.toolName,
-      toolCallId: message.toolCallId,
-    }));
+    messages = messages.map((message) => compactTranscriptMessage(message, truncate(message.text, 4_096), truncate(message.thinking, 4_096), true));
     tools = tools.map((tool) => ({
       toolCallId: tool.toolCallId,
       toolName: tool.toolName,
       argsText: truncate(tool.argsText, 1_024),
       output: truncate(tool.output, 2_048),
       status: tool.status,
+      ...(tool.parentMessageId === undefined ? {} : { parentMessageId: tool.parentMessageId }),
     }));
   }
   while (messages.length > 1 && snapshotFrameSize(makeSnapshot()) > SNAPSHOT_FRAME_BUDGET) {
@@ -736,16 +776,7 @@ export function compactSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   }
   if (snapshotFrameSize(makeSnapshot()) > SNAPSHOT_FRAME_BUDGET) {
     const latest = messages.at(-1);
-    messages = latest ? [{
-      id: latest.id,
-      role: latest.role,
-      text: truncate(latest.text, 1_024),
-      thinking: truncate(latest.thinking, 1_024),
-      timestamp: latest.timestamp,
-      status: latest.status,
-      toolName: latest.toolName,
-      toolCallId: latest.toolCallId,
-    }] : [];
+    messages = latest ? [compactTranscriptMessage(latest, truncate(latest.text, 1_024), truncate(latest.thinking, 1_024), true)] : [];
     tools = [];
     historyTruncated = true;
   }
@@ -844,6 +875,7 @@ class PiCollabHost {
   private commandResults = new Map<string, HostCommandResultMessage>();
   private commandResultBytes = 0;
   private activeCommands = new Set<string>();
+  private sessionCommand: { command: RoutedCommandMessage; token: string; started: boolean; reason?: 'new' | 'resume'; resolve: () => void; timer: NodeJS.Timeout } | null = null;
   /** Set whenever a source event or projection had to discard visible data. */
   private projectionTruncated = false;
 
@@ -873,7 +905,14 @@ class PiCollabHost {
     this.connect();
   }
 
-  stop(): void {
+  stop(reason?: string): void {
+    // Pi accepts the switch only after its cancellable before-switch hooks.
+    // Acknowledge handoff before shutdown closes this old host connection;
+    // the replacement extension owns the new snapshot, not this old context.
+    if (this.sessionCommand) {
+      const accepted = this.sessionCommand.started && this.sessionCommand.reason === reason;
+      this.finishSessionCommand(accepted ? 'dispatched' : 'rejected', accepted ? null : 'HOST_REPLACED', accepted ? 'Pi accepted the session switch; waiting for its new snapshot' : 'Pi lifecycle interrupted the command');
+    }
     this.stopped = true;
     this.welcomed = false;
     this.snapshotReady = false;
@@ -1180,7 +1219,7 @@ class PiCollabHost {
   }
 
   private async listSessions(ctx: ExtensionContext): Promise<JsonValue> {
-    const sessions = await SessionManager.list(ctx.cwd);
+    const sessions = await SessionManager.list(ctx.cwd, currentSessionDirectory(ctx));
     if (!Array.isArray(sessions)) {
       throw new FileCommandError("SESSION_INVALID", "The requested session metadata is invalid");
     }
@@ -1269,10 +1308,10 @@ class PiCollabHost {
     return makeData();
   }
 
-  private async getHistoricalSession(ctx: ExtensionContext, sessionId: string): Promise<JsonValue> {
+  private async resolveHistoricalSession(ctx: ExtensionContext, sessionId: string) {
     let sessions: Awaited<ReturnType<typeof SessionManager.list>>;
     try {
-      sessions = await SessionManager.list(ctx.cwd);
+      sessions = await SessionManager.list(ctx.cwd, currentSessionDirectory(ctx));
     } catch {
       throw new FileCommandError("SESSION_INVALID", "The requested session metadata is invalid");
     }
@@ -1320,6 +1359,11 @@ class PiCollabHost {
     } catch {
       throw new FileCommandError("SESSION_INVALID", "The requested session metadata is invalid");
     }
+    return { info, manager, infoId, path: infoPath };
+  }
+
+  private async getHistoricalSession(ctx: ExtensionContext, sessionId: string): Promise<JsonValue> {
+    const { info, manager, infoId } = await this.resolveHistoricalSession(ctx, sessionId);
     let entries: readonly unknown[];
     try {
       const branch = manager.getBranch();
@@ -1427,6 +1471,79 @@ class PiCollabHost {
     return true;
   }
 
+  private finishSessionCommand(status: 'applied' | 'dispatched' | 'rejected', code: string | null, message: string | null): void {
+    const pending = this.sessionCommand;
+    if (!pending) return;
+    this.sessionCommand = null;
+    clearTimeout(pending.timer);
+    if (!this.stopped) this.sendCommandResult(pending.command.relayRequestId, status, code, message);
+    pending.resolve();
+  }
+
+  // Only this single-use in-memory token can enter the native command context.
+  // Neither a session path nor user-supplied text is expanded as a Pi command.
+  async runSessionCommand(token: string, ctx: ExtensionCommandContext): Promise<void> {
+    const pending = this.sessionCommand;
+    if (!pending || pending.token !== token || pending.started || this.stopped) return;
+    pending.started = true;
+    clearTimeout(pending.timer);
+    const { command } = pending;
+    const sessionId = command.expectedSessionId!;
+    const cwd = command.expectedCwd!;
+    const check = () => {
+      if (this.stopped || this.commandStaleCode(command) || this.commandContextChanged(ctx, sessionId, cwd)) throw new FileCommandError('STALE_SESSION', 'The active Pi session changed');
+      if (!ctx.isIdle() || ctx.hasPendingMessages() || this.snapshot.phase !== 'idle') throw new FileCommandError('SESSION_BUSY', 'Wait for Pi to finish before changing sessions');
+    };
+    try {
+      check();
+      const payload = command.payload;
+      let result: { cancelled: boolean };
+      if (payload.name === 'resume_session') {
+        if (payload.sessionId === sessionId) {
+          this.finishSessionCommand('applied', null, null);
+          return;
+        }
+        const target = await this.resolveHistoricalSession(ctx, payload.sessionId);
+        if (!target.manager.getCwd() || !sameProjectPath(target.manager.getCwd(), cwd)) throw new FileCommandError('SESSION_INVALID', 'The session must belong to the current project');
+        check();
+        pending.reason = 'resume';
+        result = await ctx.switchSession(target.path);
+      } else if (payload.name === 'new_session') {
+        pending.reason = 'new';
+        result = await ctx.newSession();
+      } else {
+        throw new FileCommandError('INVALID_COMMAND', 'Unsupported session command');
+      }
+      // Successful replacement invalidates ctx/pi and starts a new extension.
+      // Never read either here. The shutdown hook already acknowledged handoff.
+      if (result.cancelled) this.finishSessionCommand('rejected', 'SESSION_CANCELLED', 'Pi cancelled the session switch');
+      else if (this.sessionCommand === pending) this.finishSessionCommand('dispatched', null, 'Pi accepted the session switch');
+    } catch (error) {
+      this.finishSessionCommand('rejected', error instanceof FileCommandError ? error.code : 'COMMAND_ERROR', commandErrorMessage(error));
+    }
+  }
+
+  private dispatchSessionCommand(command: RoutedCommandMessage): Promise<void> {
+    return new Promise(resolve => {
+      const token = randomUUID();
+      const timer = setTimeout(() => this.finishSessionCommand('rejected', 'SESSION_CONTROL_UNAVAILABLE', 'Pi did not enter its command context'), 5_000);
+      timer.unref();
+      this.sessionCommand = { command, token, started: false, resolve, timer };
+      try { this.pi.sendUserMessage(`/collab-session-control ${token}`, { expandPromptTemplates: true }); }
+      catch (error) { this.finishSessionCommand('rejected', 'COMMAND_ERROR', commandErrorMessage(error)); }
+    });
+  }
+
+  private inputCommands() {
+    const names = new Set<string>();
+    const available = this.pi.getCommands().filter(c => {
+      if (names.has(c.name) || /^collab(?:-|$)/.test(c.name) || !/^[^\s/\\\u0000-\u001f\u007f]{1,128}$/u.test(c.name)) return false;
+      // Pi lists extensions before templates/skills: preserve native precedence.
+      names.add(c.name); return true;
+    });
+    return { kind: 'commands' as const, truncated: available.length > 200, commands: available.slice(0, 200).map(c => ({ name: c.name, description: truncate(c.description ?? '', 160), source: c.source })) };
+  }
+
   private async executeCommand(command: RoutedCommandMessage): Promise<void> {
     if (this.stopped) return;
     if (this.rejectIfCommandStale(command)) return;
@@ -1448,16 +1565,50 @@ class PiCollabHost {
     // synchronous operation as well as after awaited work below.
     if (this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
     try {
+      if (process.env.PI_COLLAB_MANAGED === '1' && ['new_session', 'resume_session'].includes(payload.name)) throw new FileCommandError('MANAGED_SESSION_FIXED', 'Open an independent managed session from the sidebar; this process keeps its own session');
+      if (['list_commands', 'run_command'].includes(payload.name) || payload.name === 'prompt' && payload.files !== undefined) {
+        if (!this.snapshot.inputAssist) throw new FileCommandError('INPUT_ASSIST_UNAVAILABLE', 'Reload Pi to enable commands and file references');
+        if (command.expectedSessionId === undefined || command.expectedCwd === undefined) throw new FileCommandError('STALE_SESSION', 'Input actions require session and project fences');
+      }
+      if (['new_session', 'rename_session', 'resume_session', 'run_command'].includes(payload.name)) {
+        if (command.expectedSessionId === undefined || command.expectedCwd === undefined) throw new FileCommandError('STALE_SESSION', 'Session controls require session and project fences');
+        if (!ctx.isIdle() || ctx.hasPendingMessages() || this.snapshot.phase !== 'idle') throw new FileCommandError('SESSION_BUSY', 'Wait for Pi to finish before changing sessions');
+      }
       switch (payload.name) {
+        case 'list_commands':
+          this.sendCommandResult(command.relayRequestId, 'applied', null, null, this.inputCommands());
+          return;
+        case 'run_command': {
+          const parsed = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(payload.command.trim());
+          if (!parsed || !this.inputCommands().commands.some(c => c.name === parsed[1])) throw new FileCommandError('COMMAND_UNAVAILABLE', 'This command is not available remotely; use the command list or the local Pi terminal');
+          // Native Pi owns dispatch, argument parsing and skill/template expansion.
+          // Unknown names never fall through as an ordinary model prompt.
+          this.pi.sendUserMessage(`/${parsed[1]}${parsed[2] ? ' ' + parsed[2] : ''}`, { expandPromptTemplates: true });
+          if (this.stopped || this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
+          this.sendCommandResult(command.relayRequestId, 'dispatched', null, 'Command dispatched to Pi; local UI may require attention');
+          return;
+        }
+        case 'new_session':
+        case 'resume_session':
+          await this.dispatchSessionCommand(command);
+          return;
+        case 'rename_session':
+          this.pi.setSessionName(payload.title.trim());
+          if (this.stopped || this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
+          this.sendCommandResult(command.relayRequestId, 'applied', null, null);
+          return;
         case "prompt": {
           if (!ctx.isIdle() && !payload.delivery) {
             this.sendCommandResult(command.relayRequestId, "rejected", "DELIVERY_REQUIRED", "Choose steer or followUp while Pi is running");
             return;
           }
+          const content = payload.files?.length ? await attachProjectFiles(ctx.cwd, payload.content, payload.files) : payload.content;
+          if (this.stopped || this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
+          if (!ctx.isIdle() && !payload.delivery) throw new FileCommandError('DELIVERY_REQUIRED', 'Pi started working while files were being read');
           if (payload.delivery) {
-            this.pi.sendUserMessage(payload.content, { deliverAs: payload.delivery });
+            this.pi.sendUserMessage(content, { deliverAs: payload.delivery });
           } else {
-            this.pi.sendUserMessage(payload.content);
+            this.pi.sendUserMessage(content);
           }
           if (this.stopped || this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
           this.sendCommandResult(command.relayRequestId, "dispatched", null, "Prompt dispatched to Pi");
@@ -1623,11 +1774,9 @@ class PiCollabHost {
       const timestamp = typeof message.timestamp === "number" ? message.timestamp : 0;
       const toolCallId = typeof message.toolCallId === "string" ? boundedIdentifier(message.toolCallId, 256) : "";
       const baseKey = `${role}:${timestamp}:${toolCallId}`;
-      // The same AgentMessage object is reused across its lifecycle and is
-      // handled by the WeakMap above. A different object with the same
-      // role/timestamp/tool-call tuple is a distinct message (Date.now() can
-      // collide), so allocate a unique key rather than merging it with the
-      // previous message.
+      // Object identity only deduplicates the same object. Installed Pi emits
+      // different assistant objects across streaming, so that lifecycle uses
+      // activeAssistantId instead. Timestamps never join distinct messages.
       let key = baseKey;
       let suffix = 0;
       while (this.messageIds.has(key)) key = `${baseKey}:${++suffix}`;
@@ -1659,9 +1808,9 @@ class PiCollabHost {
         this.recoverFromCallbackFailure();
         return;
       }
-      if (messageProjectionWasTruncated(message)) this.markProjectionTruncated();
+      if (projection.partsTruncated || messageProjectionWasTruncated(message)) this.markProjectionTruncated();
       if (role === "assistant") this.activeAssistantId = id;
-      this.emit({ kind: "message_started", message: { ...projection, text: role === "assistant" ? "" : projection.text, thinking: role === "assistant" ? "" : projection.thinking } });
+      this.emit({ kind: "message_started", message: role === "assistant" ? { ...projection, text: "", thinking: "", parts: [] } : projection });
     } catch {
       this.recoverFromCallbackFailure();
     }
@@ -1695,19 +1844,25 @@ class PiCollabHost {
       }
       if (event.delta.length > MAX_TEXT_LENGTH) this.markProjectionTruncated();
       const mappedId = isRecord(message) ? this.messageObjectIds.get(message) : undefined;
-      const id = mappedId ?? this.activeAssistantId ?? this.messageId(message);
+      const id = this.activeAssistantId ?? mappedId ?? this.messageId(message);
+      this.messageObjectIds.set(message, id);
       if (!this.snapshot.messages.some((item) => item.id === id)) {
         const projection = messageProjection(message, id, "streaming");
         if (projection) {
-          if (messageProjectionWasTruncated(message)) this.markProjectionTruncated();
-          this.emit({ kind: "message_started", message: { ...projection, text: "", thinking: "" } });
+          if (projection.partsTruncated || messageProjectionWasTruncated(message)) this.markProjectionTruncated();
+          this.emit({ kind: "message_started", message: { ...projection, text: "", thinking: "", parts: [] } });
         } else {
           this.recoverFromCallbackFailure();
           return;
         }
         this.activeAssistantId = id;
       }
-      this.emit({ kind: "message_delta", messageId: id, channel: event.type === "text_delta" ? "text" : "thinking", delta: truncate(event.delta) });
+      const channel = event.type === "text_delta" ? "text" : "thinking";
+      const index = event.contentIndex;
+      const indexed = typeof index === "number" && Number.isInteger(index) && index >= 0 && index < MAX_CONTENT_PARTS &&
+        Array.isArray(message.content) && isRecord(message.content[index]) && message.content[index].type === channel && event.delta.length <= MAX_TEXT_LENGTH;
+      if (!indexed) this.markProjectionTruncated();
+      this.emit({ kind: "message_delta", messageId: id, channel, delta: truncate(event.delta), ...(indexed ? { partIndex: index } : {}) });
     } catch {
       this.recoverFromCallbackFailure();
     }
@@ -1724,7 +1879,8 @@ class PiCollabHost {
       }
       assistant = role === "assistant";
       const mappedId = isRecord(message) ? this.messageObjectIds.get(message) : undefined;
-      const id = role === "assistant" ? mappedId ?? this.activeAssistantId ?? this.messageId(message) : this.messageId(message);
+      const id = role === "assistant" ? this.activeAssistantId ?? mappedId ?? this.messageId(message) : this.messageId(message);
+      if (isRecord(message)) this.messageObjectIds.set(message, id);
       const stopReason = isRecord(message) ? message.stopReason : undefined;
       if (stopReason !== undefined && typeof stopReason !== "string") {
         this.recoverFromCallbackFailure();
@@ -1736,7 +1892,7 @@ class PiCollabHost {
       const error = stopReason === "error" || stopReason === "aborted";
       const projection = messageProjection(message, id, error ? "error" : "complete");
       if (projection) {
-        if (messageProjectionWasTruncated(message)) this.markProjectionTruncated();
+        if (projection.partsTruncated || messageProjectionWasTruncated(message)) this.markProjectionTruncated();
         this.emit({ kind: "message_finished", message: projection });
       } else {
         this.recoverFromCallbackFailure();
@@ -1756,10 +1912,17 @@ class PiCollabHost {
     }
   }
 
+  private toolParent(toolCallId: string): Pick<ToolExecution, "parentMessageId"> {
+    // Derived afresh from retained messages: eviction/reconnect/context changes
+    // cannot leave a stale parent hint. Upper bound is 100 x 500 occurrences.
+    const parent = buildToolParentIndex(this.snapshot.messages).get(toolCallId);
+    return parent ? { parentMessageId: parent } : {};
+  }
+
   onToolStart(toolCallId: string, toolName: string, args: unknown, ctx: ExtensionContext): void {
     try {
       if (!this.adoptContext(ctx)) return;
-      if (typeof toolCallId !== "string" || typeof toolName !== "string" || !toolCallId || !toolName) {
+      if (typeof toolCallId !== "string" || typeof toolName !== "string" || !toolCallId || !toolName || toolCallId.length > 256) {
         this.recoverFromCallbackFailure();
         return;
       }
@@ -1767,7 +1930,7 @@ class PiCollabHost {
       const boundedToolName = truncate(toolName, 256);
       const argsText = safeJsonWithStatus(args);
       if (toolCallId.length > 256 || toolName.length > 256 || argsText.truncated) this.markProjectionTruncated();
-      const tool: ToolExecution = { toolCallId: boundedToolCallId, toolName: boundedToolName, argsText: argsText.value, output: "", status: "running" };
+      const tool: ToolExecution = { toolCallId: boundedToolCallId, toolName: boundedToolName, argsText: argsText.value, output: "", status: "running", ...this.toolParent(toolCallId) };
       this.retainTool(tool);
       this.emit({ kind: "tool_started", tool });
     } catch {
@@ -1778,7 +1941,7 @@ class PiCollabHost {
   onToolUpdate(toolCallId: string, partialResult: unknown, ctx: ExtensionContext): void {
     try {
       if (!this.adoptContext(ctx)) return;
-      if (typeof toolCallId !== "string" || !toolCallId) {
+      if (typeof toolCallId !== "string" || !toolCallId || toolCallId.length > 256) {
         this.recoverFromCallbackFailure();
         return;
       }
@@ -1804,7 +1967,7 @@ class PiCollabHost {
   onToolEnd(toolCallId: string, toolName: string, result: unknown, isError: boolean, ctx: ExtensionContext): void {
     try {
       if (!this.adoptContext(ctx)) return;
-      if (typeof toolCallId !== "string" || typeof toolName !== "string" || typeof isError !== "boolean" || !toolCallId || !toolName) {
+      if (typeof toolCallId !== "string" || typeof toolName !== "string" || typeof isError !== "boolean" || !toolCallId || !toolName || toolCallId.length > 256) {
         this.recoverFromCallbackFailure();
         return;
       }
@@ -1821,6 +1984,8 @@ class PiCollabHost {
       if (toolCallId.length > 256 || toolName.length > 256 || outputText.truncated) this.markProjectionTruncated();
       const existing = this.tools.get(boundedToolCallId) ?? { toolCallId: boundedToolCallId, toolName: boundedToolName, argsText: "", output: "", status: "running" as const };
       const tool: ToolExecution = { ...existing, toolName: boundedToolName, output: outputText.value, status: isError ? "error" : "complete" };
+      delete tool.parentMessageId;
+      Object.assign(tool, this.toolParent(toolCallId));
       this.retainTool(tool);
       this.emit({ kind: "tool_finished", tool });
     } catch {
@@ -1855,6 +2020,9 @@ class PiCollabHost {
       }
       const safeTitle = title ? truncate(title, 512) : null;
       this.emit({ kind: "ui_wait", waiting, title: safeTitle });
+      // A command-level dialog can close without any agent turn/settled event.
+      // Restore native authority instead of leaving an idle Pi shown as running.
+      if (!waiting) this.onAgentState(ctx.isIdle() ? 'idle' : 'running', ctx);
     } catch {
       this.recoverFromCallbackFailure();
     }
@@ -1908,6 +2076,7 @@ class PiCollabHost {
       if (resetProjection || sessionChanged || cwdChanged) {
         this.activeAssistantId = null;
         this.messageIds.clear();
+        this.messageObjectIds = new WeakMap();
         this.tools.clear();
         this.projectionTruncated = false;
       }
@@ -1986,11 +2155,22 @@ export default function registerPiCollabExtension(pi: ExtensionAPI): void {
     if (autoEnabled(pi)) await start(ctx);
   });
 
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", (event) => {
     lifecycleGeneration++;
     startPromise = null;
-    host?.stop();
+    host?.stop(event?.reason);
     host = null;
+  });
+
+  // Fail closed if a Pi runtime does not dispatch expanded extension commands:
+  // the internal bridge text must never fall through into a model turn.
+  pi.on('input', (event) => {
+    if (event.source === 'extension' && event.text.startsWith('/collab-session-control ')) return { action: 'handled' };
+  });
+
+  pi.registerCommand('collab-session-control', {
+    description: 'Internal single-use bridge for Café session controls',
+    handler: async (token, ctx) => { await host?.runSessionCommand(token, ctx); },
   });
 
   pi.registerCommand("collab-connect", {

@@ -9,10 +9,12 @@ import (
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/config"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/httpserver"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/hub"
+	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/managed"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/transport"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/webui"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 )
 
@@ -22,6 +24,7 @@ type Options struct {
 	Assets    *webui.Assets
 }
 type Service struct {
+	managed *managed.Manager
 	Hub     *hub.Hub
 	HTTP    *httpserver.Server
 	ctx     context.Context
@@ -114,7 +117,18 @@ func New(cfg config.Config, options Options) (*Service, error) {
 			})
 		}).ServeHTTP(w, r)
 	})
-	s.HTTP = httpserver.NewServer(httpserver.NewHandler(options.Assets, ws))
+	var managerHandler http.Handler
+	if cfg.ManagedConfig != "" {
+		manager, err := managed.Load(cfg.ManagedConfig, "ws://"+net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))+"/ws", cfg.HostToken)
+		if err != nil {
+			h.Close()
+			cancel()
+			return nil, err
+		}
+		s.managed = manager
+		managerHandler = manager.Handler(cfg.ClientToken, origins)
+	}
+	s.HTTP = httpserver.NewServer(httpserver.NewManagedHandler(options.Assets, ws, managerHandler))
 	return s, nil
 }
 func (s *Service) Serve(listener net.Listener) error { return s.HTTP.Serve(listener) }
@@ -133,6 +147,9 @@ func (s *Service) Close(ctx context.Context) error {
 	s.closing = true
 	s.mu.Unlock()
 	defer close(s.done)
+	if s.managed != nil {
+		s.managed.Close()
+	}
 	s.Hub.Close()
 	s.cancel()
 	err := s.HTTP.Shutdown(ctx)

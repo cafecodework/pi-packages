@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	ManagedConfig          string
 	Host                   string
 	Port                   int
 	HostToken, ClientToken string
@@ -74,6 +75,13 @@ func Parse(env map[string]string) (Config, error) {
 	defaultToken := func(s string) bool { s = strings.ToLower(s); return s == defaultHostToken || s == defaultClientToken }
 	if !loopback && (ht == "" || ct == "" || strings.EqualFold(ht, ct) || defaultToken(ht) || defaultToken(ct) || placeholder.MatchString(ht) || placeholder.MatchString(ct) || !sufficientEntropy(ht) || !sufficientEntropy(ct)) {
 		return Config{}, errors.New("Explicit distinct high-entropy non-default tokens are required outside loopback mode")
+	}
+	c.ManagedConfig = env["PI_COLLAB_MANAGED_CONFIG"]
+	if len(c.ManagedConfig) > 4096 || strings.ContainsRune(c.ManagedConfig, 0) {
+		return Config{}, errors.New("Invalid managed configuration path")
+	}
+	if c.ManagedConfig != "" && (!loopback || ht == "" || ct == "" || strings.EqualFold(ht, ct) || defaultToken(ht) || defaultToken(ct) || placeholder.MatchString(ht) || placeholder.MatchString(ct) || !sufficientEntropy(ht) || !sufficientEntropy(ct)) {
+		return Config{}, errors.New("Managed Pi requires loopback and distinct strong explicit tokens")
 	}
 	c.DevelopmentCredentials = loopback && (ht == "" || ct == "")
 	c.AllowedOrigins = []string{}

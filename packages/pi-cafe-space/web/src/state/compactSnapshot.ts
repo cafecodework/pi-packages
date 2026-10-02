@@ -1,4 +1,4 @@
-import { MAX_FRAME_BYTES, type SessionSnapshot } from '../../../src/protocol/index';
+import { MAX_FRAME_BYTES, compactTranscriptMessage, type SessionSnapshot } from '../../../src/protocol/index';
 const encoder = new TextEncoder();
 function suffix(text: string, limit: number): string {
     if (text.length <= limit)
@@ -14,14 +14,14 @@ function suffix(text: string, limit: number): string {
 export function compactSnapshot(value: SessionSnapshot, hostId: string): SessionSnapshot {
     let messages = value.messages.slice(-100);
     let tools = value.tools.slice(-100);
-    let truncated = !!value.historyTruncated || messages.length < value.messages.length || tools.length < value.tools.length;
+    let truncated = !!value.historyTruncated || messages.some(message => message.partsTruncated === true) || messages.length < value.messages.length || tools.length < value.tools.length;
     const trim = (messageLimit: number, toolLimit: number) => {
         messages = messages.map(message => {
             const text = suffix(message.text, messageLimit), thinking = suffix(message.thinking, messageLimit);
             if (text === message.text && thinking === message.thinking)
                 return message;
             truncated = true;
-            return { ...message, text, thinking };
+            return compactTranscriptMessage(message, text, thinking);
         });
         tools = tools.map(tool => {
             const argsText = suffix(tool.argsText, toolLimit), output = suffix(tool.output, toolLimit);
@@ -47,8 +47,10 @@ export function compactSnapshot(value: SessionSnapshot, hostId: string): Session
             bytes -= encoder.encode(JSON.stringify(tools[0])).length + (tools.length > 1 ? 1 : 0);
             tools = tools.slice(1);
         }
-        if (bytes > MAX_FRAME_BYTES - 1024)
+        if (bytes > MAX_FRAME_BYTES - 1024) {
+            messages = messages.map(message => compactTranscriptMessage(message, message.text, message.thinking, true));
             trim(8192, 4096);
+        }
         if (size() > MAX_FRAME_BYTES - 1024)
             trim(1024, 1024);
         if (size() > MAX_FRAME_BYTES - 1024) {

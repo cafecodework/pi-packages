@@ -1,0 +1,59 @@
+import { useEffect, useState, type PropsWithChildren } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '../../../components/ui/Controls';
+import { AssistantRuntimeProvider, ThreadPrimitive, MessagePrimitive, useAuiState, type ToolCallMessagePartProps, type DataMessagePartProps, type ReasoningMessagePartProps } from '@assistant-ui/react';
+import { scopeKey } from '../../../state/CollabStore';
+import { usePiRelayRuntime, type PiRelayRuntimeOptions } from '../runtime/usePiRelayRuntime';
+import { CollapseProvider, useDisclosure } from './CollapseState';
+import { ToolPart, isToolView } from './ToolPart';
+import { SafeMarkdown } from './SafeMarkdown';
+import { useChatLabels } from './labels';
+import styles from './Conversation.module.scss';
+import { Icon } from '../../../components/ui/Icon';
+
+export function PiRelayRuntimeProvider({ children, ...options }: PropsWithChildren<PiRelayRuntimeOptions>) {
+  const runtime = usePiRelayRuntime(options);
+  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+}
+function ToolRenderer({ artifact }: ToolCallMessagePartProps) { return isToolView(artifact) ? <ToolPart view={artifact} /> : null; }
+function DataRenderer({ name, data }: DataMessagePartProps) { return name === 'pi-tool' && isToolView(data) ? <ToolPart view={data} /> : null; }
+function Reasoning({ text, providerMetadata }: ReasoningMessagePartProps) {
+  const labels = useChatLabels();
+  const messageId = useAuiState(s => s.message.id);
+  const disclosure = useDisclosure(JSON.stringify([messageId, 'reasoning', providerMetadata?.pi?.index ?? -1]));
+  return <details className={styles.reasoning} open={disclosure.open}><summary onClick={event => { event.preventDefault(); disclosure.setOpen(!disclosure.open); }}>{labels.reasoning}</summary><pre>{text}</pre></details>;
+}
+const parts = { Text: SafeMarkdown, Reasoning, tools: { Override: ToolRenderer }, data: { by_name: { 'pi-tool': DataRenderer } } };
+function Message() {
+  const labels = useChatLabels(); const { t } = useTranslation();
+  const text = useAuiState(s => s.message.content.filter(part => part.type === 'text').map(part => part.text).join('\n\n'));
+  const [copy, setCopy] = useState<'copied' | 'copyFailed' | null>(null);
+  useEffect(() => { setCopy(null); }, [text]);
+  const id = useAuiState(s => s.message.metadata.custom.sourceId);
+  const role = useAuiState(s => s.message.metadata.custom.sourceRole);
+  const incomplete = useAuiState(s => s.message.metadata.custom.incomplete === true);
+  const projectionOnly = useAuiState(s => s.message.metadata.custom.projectionOnly === true);
+  const label = role === 'user' ? labels.user : role === 'system' ? labels.system : role === 'tool' ? labels.tool : labels.assistant;
+  return <MessagePrimitive.Root className={styles.message} data-source-id={typeof id === 'string' ? id : undefined} data-message-role={typeof role === 'string' ? role : undefined}>
+    <header className={styles.messageHeader}>{label}{projectionOnly && <span>{labels.associationMissing}</span>}</header>
+    <MessagePrimitive.Parts components={parts} unstable_showEmptyOnNonTextEnd={false} />
+    {incomplete && <small className={styles.warning}>{labels.incomplete}</small>}
+    {text && <footer className={styles.messageActions}><Button variant="quiet" aria-label={t('copyMessage')} onClick={() => { void navigator.clipboard?.writeText(text).then(() => setCopy('copied'), () => setCopy('copyFailed')); if (!navigator.clipboard) setCopy('copyFailed'); }}><Icon name={copy === 'copied' ? 'check' : 'copy'} />{t('copyMessage')}</Button>{copy && <span role="status">{t(copy)}</span>}</footer>}
+  </MessagePrimitive.Root>;
+}
+function Transcript({ readOnly, waiting, empty }: { readOnly: boolean; waiting: boolean; empty: boolean }) {
+  const labels = useChatLabels();
+  return <ThreadPrimitive.Root className={styles.thread}>
+    {readOnly && <p className={styles.notice}>{labels.history}</p>}
+    {waiting && <p role="status" className={styles.notice}>{labels.waiting}</p>}
+    {empty && <div className={styles.empty}><Icon name="message" /><h2>{labels.emptyConversation}</h2><p>{labels.emptyConversationHelp}</p></div>}
+    <div className={styles.messages} data-empty={empty} role="log" aria-label={labels.conversation} aria-live="off">
+      <ThreadPrimitive.Messages>{() => <Message />}</ThreadPrimitive.Messages>
+    </div>
+  </ThreadPrimitive.Root>;
+}
+export function Conversation(props: PiRelayRuntimeOptions) {
+  return <PiRelayRuntimeProvider key={JSON.stringify([scopeKey(props.scope), !!props.readOnly])} {...props}>
+    <CollapseProvider><Transcript readOnly={!!props.readOnly} waiting={!props.readOnly && props.snapshot.phase === 'waiting_local_ui'} empty={!props.readOnly && props.snapshot.messages.length === 0 && props.snapshot.tools.length === 0} /></CollapseProvider>
+  </PiRelayRuntimeProvider>;
+}

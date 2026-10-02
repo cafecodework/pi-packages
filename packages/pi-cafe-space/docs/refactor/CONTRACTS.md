@@ -35,7 +35,7 @@
 - 根 workspace 仍只有一份 `package-lock.json`，不建 `web/package.json` 或第二份 JS lockfile。
 - R01 只记录精确版本与证据；R03 才创建 Go module，R09 才安装核准的 Web 依赖。保持 Node 最低 `22.19.0`，不使用 force/legacy-peer-deps。
 - DOM 测试环境选 `jsdom`；原 Vitest 3.2.4 经 R09 audit 后用户明确批准该 package 升级为 4.1.11，使用隔离 Node 22.23.2。其他 workspace 的 Vitest 不升级；变更证据见 PROGRESS 第19节。
-- 无需 assistant-ui CLI scaffold。自写 primitives 组合，避免模板引入 Tailwind、AI SDK 或 `/api/chat`。
+- 无需 assistant-ui CLI scaffold；消息继续使用assistant-ui既有primitives/runtime。§43用户授权仅在共享UI层接入shadcn/Base与Tailwind，不引入AI SDK或`/api/chat`。
 - R16 前 HTTP 服务允许明确报告 Web 尚未构建；不能为了演示偷偷从任意磁盘目录服务资源。
 - R16 的 embed 用 `webembed` build tag：`embedded.go` 仅在此 tag 下编译，嵌入 `assets/`；`embedded_stub.go` 用 `!webembed`，只返回明确的 Web 未构建状态。普通 `go test ./...` 用注入的测试 fs，不依赖 Git 中不存在的 assets。
 - 生产 binary 必须通过校验脚本以 `go build -tags webembed` 构建；缺 assets 则构建失败。集成验收还运行带此 tag 的 tests。不能把无 tag 的调试 binary 当发行产物。
@@ -194,9 +194,12 @@ type HostScope = Readonly<{
 - 保留 `pi-collab-token`、`pi-collab-room`、`pi-collab-peer-id`、`pi-collab-host-id`；sessionStorage 抛错退回内存。
 - token 错误停止自动认证重试，回登录页；用户改正后显式重连。普通网络错误仍有界退避重连。
 - 路由 opaque ID 编码一次、校验一次；文件路径只在内存/命令 payload，不进 URL。
+- 房间书签使用 HashRouter `/#/rooms/:roomId`，历史为 `/#/rooms/:roomId/history/:sessionId`。房间名不是凭据，沿用1–64字符ASCII room校验；URL房间优先于已存房间及服务端默认，首次连接前确定。非法房间路径不回退或连接其他房间；房间切换通过原generation/scope边界撤销pending、清草稿/缓存/旧host选择，不重放命令。保留未带房间的根入口及历史书签兼容；登录后生成带房间路径。token仍只通过原登录/sessionStorage与WS hello传递，不进URL。
 - 历史详情页为只读投影；不得让历史 sessionId 替换当前 Pi context 去发 prompt。
 
 ## 5. UI 可复核验收
+
+§41–42的Radix UI是上一版部署方案。§43用户明确改用shadcn/ui + Tailwind：官方Base Nova源码在`components/ui/shadcn`，Select用于thinking/delivery，Sheet/Tooltip使用Base UI，原生Input/Textarea/Label保留表单语义；Field/FieldGroup组织表单。Tailwind语义tokens映射既有Café palette，页面SCSS Modules保留。portal继承主题/语言、不落在inert面板内；Sheet保留闭合details的Tab边界保护。使用Base公开的`CSPProvider disableStyleElements`和外部CSS，不放宽CSP。详见[SHADCN_UI](./SHADCN_UI.md)；历史实现见[RADIX_UI](./RADIX_UI.md)。
 
 默认布局不要让执行者重新设计：
 

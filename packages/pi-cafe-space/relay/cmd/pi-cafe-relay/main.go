@@ -2,24 +2,38 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/config"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/service"
+	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/webui"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
 )
 
 // This candidate entry point is not used by the existing package launcher.
-// R08 wires collaboration; production embedded Web assets arrive in R16.
+// Production candidates require the webembed build tag and verified assets.
+var version = "development"
+
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		_, digest, err := webui.Embedded()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"version": version, "webDigest": digest, "platform": runtime.GOOS + "-" + runtime.GOARCH})
+		return
+	}
 	env := map[string]string{}
-	for _, key := range []string{"PI_COLLAB_HOST", "PI_COLLAB_PORT", "PI_COLLAB_HOST_TOKEN", "PI_COLLAB_CLIENT_TOKEN", "PI_COLLAB_ALLOWED_ORIGINS"} {
+	for _, key := range []string{"PI_COLLAB_HOST", "PI_COLLAB_PORT", "PI_COLLAB_HOST_TOKEN", "PI_COLLAB_CLIENT_TOKEN", "PI_COLLAB_ALLOWED_ORIGINS", "PI_COLLAB_MANAGED_CONFIG"} {
 		if v, ok := os.LookupEnv(key); ok {
 			env[key] = v
 		}
@@ -31,14 +45,20 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintln(os.Stderr, "Relay candidate: Web assets are not built yet")
 	if err := run(ctx, cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "Relay listener failed:", err)
 		os.Exit(1)
 	}
 }
 func run(ctx context.Context, cfg config.Config) error {
-	server, err := service.New(cfg, service.Options{})
+	assets, _, err := webui.Embedded()
+	if err != nil {
+		return err
+	}
+	if assets == nil {
+		fmt.Fprintln(os.Stderr, "Relay candidate: Web assets are not built yet")
+	}
+	server, err := service.New(cfg, service.Options{Assets: assets})
 	if err != nil {
 		return err
 	}

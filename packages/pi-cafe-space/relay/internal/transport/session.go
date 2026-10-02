@@ -327,6 +327,16 @@ func (s *Session) writePump() {
 			_ = s.conn.WriteMessage(websocket.TextMessage, frame)
 		}
 		_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), deadline)
+		if code == 1009 {
+			// Gorilla rejects an oversized frame from its header without consuming
+			// the body. An immediate TCP close with unread bytes can reset the
+			// connection before a Node/browser peer sees the 1009 control frame.
+			// Allow delivery within the EXISTING close grace; the watchdog still
+			// enforces its original deadline. Never read/allocate the rejected body.
+			timer := time.NewTimer(time.Until(deadline))
+			<-timer.C
+			timer.Stop()
+		}
 	}
 	for {
 		// Do not let an always-ready data queue starve close/control.
