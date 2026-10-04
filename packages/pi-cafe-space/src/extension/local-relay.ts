@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, lstatSync, openSync, fstatSync, readFileSync, closeSync } from "node:fs";
+import { homedir } from "node:os";
 import { open, stat, unlink } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROTOCOL_VERSION } from "../protocol/index.js";
 
@@ -19,6 +20,31 @@ export interface LocalRelayConfig {
 }
 
 export type LocalRelayStatus = "already_running" | "started" | "remote" | "unavailable";
+
+export function localCredentialFile(relayUrl: string, environment: NodeJS.ProcessEnv = process.env): string | null {
+  const url = new URL(relayUrl);
+  if (url.protocol !== 'ws:' || !LOOPBACK_HOSTS.has(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname !== '/ws') return null;
+  const configured = environment.PI_CAFE_CREDENTIALS_FILE;
+  if (configured !== undefined) {
+    if (!configured || configured.length > 4096 || configured.includes('\0') || !isAbsolute(configured)) throw Error('Invalid Café Space credential path');
+    return configured;
+  }
+  return join(environment.HOME || homedir(), '.config', 'pi-cafe-space', `credentials-${url.port || '80'}.json`);
+}
+
+export function readLocalHostToken(path: string, relayUrl: string): string | null {
+  let info;
+  try { info = lstatSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw Error('Cannot read Café Space credentials'); }
+  if (!info.isFile() || info.size > 16384 || process.platform !== 'win32' && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid?.())) throw Error('Café Space credentials must be private');
+  const fd = openSync(path, 'r');
+  try {
+    const actual = fstatSync(fd);
+    if (actual.ino !== info.ino || actual.dev !== info.dev || actual.size > 16384) throw Error('Café Space credentials changed');
+    const value = JSON.parse(readFileSync(fd, 'utf8')) as Record<string, unknown>;
+    if (value.version !== 1 || value.port !== Number(new URL(relayUrl).port || 80) || typeof value.hostToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value.hostToken)) throw Error('Invalid Café Space credentials');
+    return value.hostToken;
+  } finally { closeSync(fd); }
+}
 
 function hasUrlUserInfo(value: string): boolean {
   const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value.trim())?.[1];
@@ -99,7 +125,7 @@ function relayEnvironment(bindHost: string, port: string, hostToken: string, par
   // configuration, rather than trying to maintain an incomplete secret-name
   // blacklist (which could miss a provider's custom credential variable).
   const allowedParentNames = new Set([
-    "path", "systemroot", "systemdrive", "windir", "comspec", "temp", "tmp", "localappdata",
+    "home", "path", "systemroot", "systemdrive", "windir", "comspec", "temp", "tmp", "localappdata",
     "appdata", "programdata", "allusersprofile", "public", "userprofile", "homedrive", "homepath", "homeshare",
     "programfiles", "programfiles(x86)", "programw6432", "commonprogramfiles", "commonprogramfiles(x86)",
     "commonprogramw6432", "os", "number_of_processors", "processor_architecture", "processor_identifier",
@@ -108,6 +134,7 @@ function relayEnvironment(bindHost: string, port: string, hostToken: string, par
   for (const [name, value] of Object.entries(parent)) {
     if (value !== undefined && allowedParentNames.has(name.toLowerCase())) environment[name] = value;
   }
+  if (parent.PI_CAFE_CREDENTIALS_FILE !== undefined) environment.PI_CAFE_CREDENTIALS_FILE = parent.PI_CAFE_CREDENTIALS_FILE;
   environment.PI_COLLAB_HOST = bindHost;
   environment.PI_COLLAB_PORT = port;
   environment.PI_COLLAB_HOST_TOKEN = hostToken;

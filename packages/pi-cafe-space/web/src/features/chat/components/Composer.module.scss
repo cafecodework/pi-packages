@@ -24,5 +24,20 @@
 @media (forced-colors: active) { .completions li[aria-selected='true'] { outline: 2px solid Highlight; outline-offset: -2px; } }
 @media (max-width: 767px) { .completions { left: 12px; right: 12px; } }
 .readonly { padding: 12px 20px; color: var(--cafe-muted); font-size: 12px; }
-@media (max-width: 767px) { .composer { padding: 8px 12px 12px; } .composer textarea { padding: 12px 14px 6px; min-height: 70px; } .controls { padding: 4px 8px 8px; } .composer .hint { font-size: 10px; } }
+@media (max-width: 767px) {
+  .composer { padding: 6px 10px max(10px,env(safe-area-inset-bottom)); max-width: 100%; }
+  .navigation { left: auto; right: 14px; transform: none; padding-bottom: 8px; }
+  .navigation button { width: 44px; min-width: 44px; height: 44px; padding: 12px; font-size: 0; border-radius: 50%; }
+  .navigation button svg { width: 18px; height: 18px; }
+  .composer textarea { font-size: 16px; line-height: 1.55; padding: 12px 14px 4px; min-height: 48px; max-height: min(160px,calc(var(--cafe-viewport-height,100dvh) * .25)); resize: none; }
+  .inputShell { border-radius: 16px; box-shadow: none; }
+  .controls { padding: 4px 8px 8px; gap: 6px; }
+  .context { flex: 1 1 0; width: 0; }
+  .actions { flex: 0 0 auto; gap: 4px; }
+  .actions button { min-width: 44px; width: 44px; height: 44px; border-radius: 12px; padding: 10px; }
+  .actionLabel { display: none; }
+  .controls > [data-slot='field'] { flex: 1 1 100%; order: -1; }
+  .composer .hint { display: none; }
+  .composer p { font-size: 12px; line-height: 1.55; }
+}
 @media (max-height: 600px) { .composer textarea { height: 54px; min-height: 54px; } .composer .hint { display: none; } .composer { padding-bottom: 8px; } }

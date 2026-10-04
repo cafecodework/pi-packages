@@ -25,7 +25,9 @@ func NewHandler(assets *webui.Assets, websocketHandler ...http.Handler) http.Han
 	}
 	return NewManagedHandler(assets, ws, nil)
 }
-func NewManagedHandler(assets *webui.Assets, websocketHandler http.Handler, managedHandler http.Handler) http.Handler {
+func NewManagedHandler(assets *webui.Assets, websocketHandler http.Handler, managedHandler http.Handler, publicOrigin ...string) http.Handler {
+	configuredPolicy := ""
+	if len(publicOrigin)==1 && publicOrigin[0]!="" { configuredPolicy=WebSocketContentSecurityPolicy(publicOrigin[0]) }
 	router := gin.New()
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
@@ -80,6 +82,8 @@ func NewManagedHandler(assets *webui.Assets, websocketHandler http.Handler, mana
 		for k, v := range securityHeaders {
 			w.Header().Set(k, v)
 		}
+		policy:=configuredPolicy;if policy==""{policy=localPageContentSecurityPolicy(r)}
+		w.Header().Set("Content-Security-Policy",policy)
 		if managedHandler != nil && r.URL.Path == "/api/workspace" && r.URL.RawPath == "" && r.URL.EscapedPath() == r.URL.Path {
 			managedHandler.ServeHTTP(w, r)
 			return

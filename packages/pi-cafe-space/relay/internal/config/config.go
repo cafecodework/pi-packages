@@ -4,8 +4,10 @@ package config
 
 import (
 	"errors"
+	"encoding/base64"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/auth"
 	"math"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,7 +15,11 @@ import (
 )
 
 type Config struct {
+	CredentialsFile        string
+	RemoteConfig           string
 	ManagedConfig          string
+	// Service must verify room mode before accepting user-chosen local tokens.
+	ManagedRoomCredentials bool
 	Host                   string
 	Port                   int
 	HostToken, ClientToken string
@@ -76,12 +82,23 @@ func Parse(env map[string]string) (Config, error) {
 	if !loopback && (ht == "" || ct == "" || strings.EqualFold(ht, ct) || defaultToken(ht) || defaultToken(ct) || placeholder.MatchString(ht) || placeholder.MatchString(ct) || !sufficientEntropy(ht) || !sufficientEntropy(ct)) {
 		return Config{}, errors.New("Explicit distinct high-entropy non-default tokens are required outside loopback mode")
 	}
+	c.CredentialsFile = env["PI_CAFE_CREDENTIALS_FILE"]
+	if c.CredentialsFile != "" && (len(c.CredentialsFile) > 4096 || strings.ContainsRune(c.CredentialsFile, 0) || !filepath.IsAbs(c.CredentialsFile) || !loopback || env["PI_CAFE_REMOTE_CONFIG"] != "" || env["PI_COLLAB_MANAGED_CONFIG"] != "" || (ht != "" && ht != defaultHostToken) || (ct != "" && ct != defaultClientToken)) {
+		return Config{}, errors.New("Local setup requires loopback, an absolute credential path and no explicit custom/remote/managed configuration")
+	}
+	c.RemoteConfig = env["PI_CAFE_REMOTE_CONFIG"]
+	if len(c.RemoteConfig) > 4096 || strings.ContainsRune(c.RemoteConfig, 0) {
+		return Config{}, errors.New("Invalid remote configuration path")
+	}
 	c.ManagedConfig = env["PI_COLLAB_MANAGED_CONFIG"]
 	if len(c.ManagedConfig) > 4096 || strings.ContainsRune(c.ManagedConfig, 0) {
 		return Config{}, errors.New("Invalid managed configuration path")
 	}
-	if c.ManagedConfig != "" && (!loopback || ht == "" || ct == "" || strings.EqualFold(ht, ct) || defaultToken(ht) || defaultToken(ct) || placeholder.MatchString(ht) || placeholder.MatchString(ct) || !sufficientEntropy(ht) || !sufficientEntropy(ct)) {
-		return Config{}, errors.New("Managed Pi requires loopback and distinct strong explicit tokens")
+	if c.ManagedConfig != "" {
+		commonSafe := loopback && ht != "" && ct != "" && !strings.EqualFold(ht,ct) && !defaultToken(ht) && !defaultToken(ct) && !placeholder.MatchString(ht) && !placeholder.MatchString(ct) && sufficientEntropy(ht)
+		roomSetup := commonSafe && ValidSetupHostToken(ht) && ValidStoredSetupToken(ct) && filepath.IsAbs(c.RemoteConfig)
+		if !commonSafe || (!sufficientEntropy(ct) && !roomSetup) { return Config{}, errors.New("Managed Pi requires loopback and distinct explicit credentials; user-chosen tokens require verified room mode") }
+		c.ManagedRoomCredentials = !sufficientEntropy(ct)
 	}
 	c.DevelopmentCredentials = loopback && (ht == "" || ct == "")
 	c.AllowedOrigins = []string{}
@@ -97,6 +114,30 @@ func Parse(env map[string]string) (Config, error) {
 	}
 	return c, nil
 }
+// Local users choose their own access token; there is no complexity policy.
+// These bounds keep one-line input and transport handling predictable.
+func ValidSetupToken(s string) bool {
+	return length(s) <= 20 && ValidStoredSetupToken(s)
+}
+
+// Never invalidate or silently replace credentials already saved by older versions.
+func ValidStoredSetupToken(s string) bool {
+	if length(s) < 6 || length(s) > 256 || trim(s) != s { return false }
+	for _, r := range s { if r < 32 || r >= 127 && r <= 159 { return false } }
+	return true
+}
+
+// Internal Pi credentials are generated separately, never chosen in the form.
+func ValidSetupHostToken(s string) bool {
+	if len(s) != 43 { return false }
+	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
+	return err == nil && len(b) == 32
+}
+
+func NeedsLocalSetup(c Config) bool {
+	return c.RemoteConfig == "" && c.ManagedConfig == "" && c.HostToken == defaultHostToken && c.ClientToken == defaultClientToken
+}
+
 func validOrigin(s string) bool {
 	// Share the source-derived URL policy with HTTP admission. This is pure
 	// validation, not a listener/network side effect.

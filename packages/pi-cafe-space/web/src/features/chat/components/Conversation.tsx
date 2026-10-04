@@ -10,6 +10,8 @@ import { SafeMarkdown } from './SafeMarkdown';
 import { useChatLabels } from './labels';
 import styles from './Conversation.module.scss';
 import { Icon } from '../../../components/ui/Icon';
+import { AgentActivity } from './AgentActivity';
+import type { SessionSnapshot } from '../../../../../src/protocol/index';
 
 export function PiRelayRuntimeProvider({ children, ...options }: PropsWithChildren<PiRelayRuntimeOptions>) {
   const runtime = usePiRelayRuntime(options);
@@ -21,7 +23,8 @@ function Reasoning({ text, providerMetadata }: ReasoningMessagePartProps) {
   const labels = useChatLabels();
   const messageId = useAuiState(s => s.message.id);
   const disclosure = useDisclosure(JSON.stringify([messageId, 'reasoning', providerMetadata?.pi?.index ?? -1]));
-  return <details className={styles.reasoning} open={disclosure.open}><summary onClick={event => { event.preventDefault(); disclosure.setOpen(!disclosure.open); }}>{labels.reasoning}</summary><pre>{text}</pre></details>;
+  const running = useAuiState(s => s.message.status?.type === 'running');
+  return <details className={styles.reasoning} data-streaming={running} open={disclosure.open}><summary onClick={event => { event.preventDefault(); disclosure.setOpen(!disclosure.open); }}>{labels.reasoning}</summary><pre>{text}</pre></details>;
 }
 const parts = { Text: SafeMarkdown, Reasoning, tools: { Override: ToolRenderer }, data: { by_name: { 'pi-tool': DataRenderer } } };
 function Message() {
@@ -41,19 +44,19 @@ function Message() {
     {text && <footer className={styles.messageActions}><Button variant="quiet" aria-label={t('copyMessage')} onClick={() => { void navigator.clipboard?.writeText(text).then(() => setCopy('copied'), () => setCopy('copyFailed')); if (!navigator.clipboard) setCopy('copyFailed'); }}><Icon name={copy === 'copied' ? 'check' : 'copy'} />{t('copyMessage')}</Button>{copy && <span role="status">{t(copy)}</span>}</footer>}
   </MessagePrimitive.Root>;
 }
-function Transcript({ readOnly, waiting, empty }: { readOnly: boolean; waiting: boolean; empty: boolean }) {
+function Transcript({ readOnly, empty, snapshot, connected }: { readOnly: boolean; empty: boolean; snapshot: SessionSnapshot; connected: boolean }) {
   const labels = useChatLabels();
   return <ThreadPrimitive.Root className={styles.thread}>
     {readOnly && <p className={styles.notice}>{labels.history}</p>}
-    {waiting && <p role="status" className={styles.notice}>{labels.waiting}</p>}
     {empty && <div className={styles.empty}><Icon name="message" /><h2>{labels.emptyConversation}</h2><p>{labels.emptyConversationHelp}</p></div>}
     <div className={styles.messages} data-empty={empty} role="log" aria-label={labels.conversation} aria-live="off">
       <ThreadPrimitive.Messages>{() => <Message />}</ThreadPrimitive.Messages>
     </div>
+    {!readOnly && <AgentActivity snapshot={snapshot} connected={connected} />}
   </ThreadPrimitive.Root>;
 }
-export function Conversation(props: PiRelayRuntimeOptions) {
+export function Conversation({ connected = true, ...props }: PiRelayRuntimeOptions & { connected?: boolean }) {
   return <PiRelayRuntimeProvider key={JSON.stringify([scopeKey(props.scope), !!props.readOnly])} {...props}>
-    <CollapseProvider><Transcript readOnly={!!props.readOnly} waiting={!props.readOnly && props.snapshot.phase === 'waiting_local_ui'} empty={!props.readOnly && props.snapshot.messages.length === 0 && props.snapshot.tools.length === 0} /></CollapseProvider>
+    <CollapseProvider><Transcript readOnly={!!props.readOnly} snapshot={props.snapshot} connected={connected} empty={!props.readOnly && props.snapshot.phase !== 'running' && props.snapshot.phase !== 'waiting_local_ui' && props.snapshot.messages.length === 0 && props.snapshot.tools.length === 0} /></CollapseProvider>
   </PiRelayRuntimeProvider>;
 }

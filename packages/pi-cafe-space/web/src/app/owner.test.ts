@@ -26,11 +26,22 @@ it('has an inert constructor, owns one client, ingests before Gateway, and clear
   } finally { owner.dispose(); }
   expect(socket.onmessage).toBeNull();
 });
+it('does not connect with cached credentials before first-time setup', async () => {
+  const factory = vi.fn(() => new Socket());
+  const storage = createRelayStorage(() => { throw Error('isolated'); });
+  storage.set('token', 'local-dev-client-token');
+  const owner = new AppOwner({ client: new RelayClient({ origin: 'http://localhost', socketFactory: factory }), storage, http: { config: async () => ({ protocolVersion: 1, wsPath: '/ws', defaultRoom: 'main', setupRequired: true }) } });
+  try {
+    expect(await owner.initialize()).toMatchObject({ setupRequired: true });
+    expect(factory).not.toHaveBeenCalled();
+    expect(() => owner.login('cached', 'main')).toThrow('CONFIG_UNAVAILABLE');
+  } finally { owner.dispose(); }
+});
 it('never auto-selects an ambiguous inventory without a saved or explicit host', async () => {
   const socket = new Socket();
   const owner = new AppOwner({ client: new RelayClient({ origin: 'http://localhost', socketFactory: () => socket }), storage: createRelayStorage(() => { throw Error(); }), http: { config: async () => ({ protocolVersion: 1, wsPath: '/ws', defaultRoom: 'main' }) } });
   try {
-    owner.login('test', 'main'); socket.onopen?.(); socket.emit({ type: 'welcome', protocolVersion: 1, connectionId: 'c', peerRole: 'client', roomId: 'main', hostConnected: true });
+    await owner.initialize(); owner.login('test', 'main'); socket.onopen?.(); socket.emit({ type: 'welcome', protocolVersion: 1, connectionId: 'c', peerRole: 'client', roomId: 'main', hostConnected: true });
     const hosts = ['a', 'b'].map(hostId => ({ hostId, connected: true, ready: false, streamId: null, sessionId: null, cwd: null, sessionName: null }));
     socket.emit({ type: 'host_status', hostId: 'a', connected: true, streamId: null, sessionId: null, hosts });
     expect(owner.store.getSnapshot().selectedHostId).toBeNull();

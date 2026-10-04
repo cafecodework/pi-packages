@@ -5,6 +5,7 @@ import { isCommandPayload, type CommandPayload } from '../../../../src/protocol/
 import type { AppOwner } from '../../app/owner';
 import { scopeKey } from '../../state/CollabStore';
 import { useCollabStore } from '../../state/useCollabStore';
+import { useRemoteState } from '../../services/remote/useRemoteState';
 import { Button, Input } from '../../components/ui/Controls';
 import { Drawer } from '../../components/ui/Drawer';
 import { Icon } from '../../components/ui/Icon';
@@ -15,13 +16,14 @@ export interface SessionActionRequest { mode: 'new_session' | 'rename_session'; 
 export function SessionActions({ owner, roomBase = '', sessionId, title, request }: { owner: AppOwner; roomBase?: string; sessionId?: string; title?: string; request?: SessionActionRequest }) {
   const { t } = useTranslation(); const navigate = useNavigate(); const id = useId();
   const state = useCollabStore(owner.store, s => s); const scope = owner.store.scope();
+  useRemoteState(owner.remote);
   const host = scope ? state.hosts.get(scope.hostId) : undefined; const snapshot = host?.snapshot;
   const key = JSON.stringify([scope && scopeKey(scope), state.connection.generation, state.viewGeneration]);
   const [dialog, setDialog] = useState<{ mode: 'new_session' | 'rename_session' | 'resume_session'; trigger: HTMLElement; key: string } | null>(null);
   const [name, setName] = useState(''); const [busy, setBusy] = useState(false); const latch = useRef(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setDialog(null); setError(null); }, [key]);
-  const enabled = state.connection.status === 'authenticated' && !!scope && !!host && !host.stale && host.info.connected && host.info.ready !== false && snapshot?.sessionControl === true && snapshot.phase === 'idle' && !snapshot.hasPendingMessages;
+  const enabled = state.connection.status === 'authenticated' && !!scope && owner.remote.canRequestWrite() && !!host && !host.stale && host.info.connected && host.info.ready !== false && snapshot?.sessionControl === true && snapshot.phase === 'idle' && !snapshot.hasPendingMessages;
   const open = (mode: NonNullable<typeof dialog>['mode'], trigger: HTMLElement) => { setName(snapshot?.sessionName ?? ''); setError(null); setDialog({ mode, trigger, key }); };
   useEffect(() => { if (request) { open(request.mode, request.trigger); if (request.title !== undefined) setName(request.title); } }, [request]);
   const label = (mode: NonNullable<typeof dialog>['mode']) => t(mode === 'new_session' ? 'newSession' : mode === 'rename_session' ? 'renameSession' : 'resumeSession');
@@ -31,7 +33,7 @@ export function SessionActions({ owner, roomBase = '', sessionId, title, request
     latch.current = true; setBusy(true); setError(null);
     const view = state.viewGeneration;
     try {
-      const result = await owner.gateway.execute(payload, scope);
+      const result = await owner.execute(payload, scope);
       if (result.status === 'unknown') owner.store.notice('RESULT_UNKNOWN');
       if (!owner.store.isScope(scope) || owner.store.getSnapshot().viewGeneration !== view) return;
       if (result.status === 'rejected' || result.status === 'unknown') { setError(result.code ?? 'COMMAND_ERROR'); return; }

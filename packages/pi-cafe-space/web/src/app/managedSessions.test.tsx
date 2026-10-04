@@ -25,13 +25,13 @@ async function mount(withHost=true){
   });
   const owner=new AppOwner({storage:createRelayStorage(()=>{throw Error('isolated');}),client:new RelayClient({origin:'http://localhost',socketFactory:()=>socket}),http:{config:async()=>({protocolVersion:1,wsPath:'/ws',defaultRoom:'main',managedSessions:true})}});
   const i18n=createI18n();await i18n.changeLanguage('en');const app=render(<I18nextProvider i18n={i18n}><App createOwner={()=>owner}/></I18nextProvider>);
-  fireEvent.change(screen.getByLabelText('Client token'),{target:{value:'synthetic-client-token'}});fireEvent.click(screen.getByRole('button',{name:'Connect'}));
+  fireEvent.change(await screen.findByLabelText('Client token'),{target:{value:'synthetic-client-token'}});fireEvent.click(screen.getByRole('button',{name:'Connect'}));
   const old={hostId:'h1',connected:true,ready:true,streamId:'stream',sessionId:'session',cwd:'C:/synthetic',sessionName:'Original working Pi'};
   await act(async()=>{socket.onopen?.();socket.emit({type:'welcome',protocolVersion:1,connectionId:'c',peerRole:'client',roomId:'managed-test',hostConnected:withHost});socket.emit({type:'host_status',hostId:withHost?'h1':null,connected:withHost,streamId:withHost?'stream':null,sessionId:withHost?'session':null,hosts:withHost?[old]:[]});if(withHost)socket.emit({type:'snapshot',hostId:'h1',snapshot:{...fixture.expectedFinal,phase:'running',sessionControl:true,inputAssist:true}});});
   await waitFor(()=>expect(vi.mocked(managedRequest).mock.calls.some(([,q])=>q.operation==='list')).toBe(true));
   return {...app,owner,socket,sessions,old,inventory};
 }
-async function create(){fireEvent.click(screen.getByRole('button',{name:'New session'}));await screen.findByText('Allowed project');fireEvent.change(screen.getByLabelText('Session name'),{target:{value:'Independent Pi'}});const button=screen.getByRole('button',{name:'Create'});await act(async()=>{fireEvent.click(button);fireEvent.click(button);});}
+async function create(){fireEvent.click(screen.getByRole('button',{name:'Start independent Pi instance'}));await screen.findByText('Allowed project');fireEvent.change(screen.getByLabelText('Session name'),{target:{value:'Independent Pi'}});const button=screen.getByRole('button',{name:'Create'});await act(async()=>{fireEvent.click(button);fireEvent.click(button);});}
 it('creates independently while the original Pi is working; selects only after a new authoritative snapshot, retains room and original session',async()=>{
   const app=await mount();const original=app.owner.store.getSnapshot().hosts.get('h1')?.snapshot;
   fireEvent.change(screen.getByRole('textbox',{name:'Message'}),{target:{value:'original draft'}});

@@ -28,7 +28,9 @@ import { lstat as lstatPath, realpath as realpathPath } from "node:fs/promises";
 import WebSocket, { type RawData } from "ws";
 import { FileCommandError, listProjectDirectory, readProjectFile, attachProjectFiles } from "./file-commands.js";
 import { ConnectionWarningReporter } from "./connection-warning.js";
+import { registerCafe } from "./cafe.js";
 import { ensureLocalRelay } from "./local-relay.js";
+import { localCredentialFile, readLocalHostToken } from "./local-relay.js";
 
 const DEVELOPMENT_HOST_TOKEN = "local-dev-host-token";
 const DEVELOPMENT_CLIENT_TOKEN = "local-dev-client-token";
@@ -145,6 +147,7 @@ if (process.env.PI_COLLAB_RUNTIME_INSTANCE_ID !== PROCESS_INSTANCE_ID) process.e
 type UnknownRecord = Record<string, unknown>;
 
 interface HostConfig {
+  credentialsFile: string | null;
   relayUrl: string;
   roomId: string;
   token: string;
@@ -853,7 +856,7 @@ function configuration(pi: ExtensionAPI): HostConfig {
   const configuredPeerId = rawConfiguredPeerId?.trim();
   const peerId = configuredPeerId || `pi-host-${process.pid}-${PROCESS_INSTANCE_ID}-${roomId}`;
   if (peerId.length > 128) throw new Error("PI_COLLAB_PEER_ID is too long");
-  return { relayUrl, roomId, token, peerId };
+  return { relayUrl, roomId, token, peerId, credentialsFile: !configuredToken || configuredToken === DEVELOPMENT_HOST_TOKEN ? localCredentialFile(relayUrl) : null };
 }
 
 class PiCollabHost {
@@ -862,13 +865,18 @@ class PiCollabHost {
   private welcomed = false;
   private retryTimer: NodeJS.Timeout | null = null;
   private retryDelay = 500;
-  private readonly connectionWarningReporter = new ConnectionWarningReporter((message) => this.notify("warning", message));
+  private readonly connectionWarningReporter = new ConnectionWarningReporter(
+    (message) => this.notify("warning", `Café Space: connection unavailable; retrying automatically. /cafe status · ${message}`),
+    () => this.notify("info", "Café Space: connection is stable again."),
+  );
   private commandTail: Promise<void> = Promise.resolve();
   private currentContext: ExtensionContext;
   private snapshot: SessionSnapshot;
   private sequence = 0;
   private activeAssistantId: string | null = null;
   private snapshotReady = false;
+  private setupPending = false;
+  private setupNotified = false;
   private messageIds = new Map<string, string>();
   private messageObjectIds = new WeakMap<object, string>();
   private tools = new Map<string, ToolExecution>();
@@ -931,6 +939,7 @@ class PiCollabHost {
   status(): string {
     if (this.stopped) return "disabled";
     if (this.welcomed) return `connected (${this.config.roomId})`;
+    if (this.setupPending) return 'setup required';
     if (this.socket) return "connecting";
     return "reconnecting";
   }
@@ -938,7 +947,7 @@ class PiCollabHost {
   private setStatus(value: string, force = false): void {
     if (this.stopped && !force) return;
     try {
-      if (this.currentContext.hasUI) this.currentContext.ui.setStatus("pi-collab", `collab: ${value}`);
+      if (this.currentContext.hasUI) this.currentContext.ui.setStatus("pi-collab", `café space: ${value}${this.currentContext.mode === 'tui' ? ' · /cafe 分享' : ''}`);
     } catch {
       // Pi may invalidate an extension context during shutdown/reload.
     }
@@ -946,6 +955,17 @@ class PiCollabHost {
 
   private connect(): void {
     if (this.stopped || this.socket) return;
+    if (this.config.credentialsFile) {
+      try {
+        const token = readLocalHostToken(this.config.credentialsFile, this.config.relayUrl);
+        if (token) { this.config.token = token; this.setupPending = false; }
+        else if (this.setupPending) { this.setStatus('setup required'); this.scheduleReconnect(); return; }
+      } catch {
+        this.setStatus('configuration error');
+        this.reportConnectionWarning('Café Space credentials are invalid or not private; no fallback connection was attempted.');
+        this.scheduleReconnect(); return;
+      }
+    }
     this.setStatus("connecting");
     let socket: WebSocket;
     try {
@@ -976,6 +996,22 @@ class PiCollabHost {
         return;
       }
       this.setStatus("authenticating");
+    });
+    socket.once('unexpected-response', (_request, response) => {
+      if (this.socket !== socket || this.stopped) { response.destroy(); return; }
+      this.socket = null; this.welcomed = false; this.snapshotReady = false;
+      this.setupPending = response.statusCode === 423 && this.config.credentialsFile !== null;
+      response.destroy(); socket.terminate();
+      if (this.setupPending) {
+        this.connectionWarningReporter.onExplicitStop();
+        this.setStatus('setup required');
+        if (!this.setupNotified) {
+          this.setupNotified = true;
+          const page = new URL(this.config.relayUrl); page.protocol = 'http:'; page.pathname = '/';
+          this.notify('info', this.currentContext.mode === 'tui' ? '首次使用 Café Space：输入 /cafe，选择「打开首次设置网页」。保存后会自动连接。' : `首次使用 Café Space：请打开 ${page.href} 设置访问令牌。保存后会自动连接。`);
+        }
+      } else { this.setStatus('reconnecting'); this.reportConnectionWarning('relay connection: HTTP handshake rejected'); }
+      this.scheduleReconnect();
     });
     socket.on("message", (data, isBinary) => {
       if (this.socket !== socket || this.stopped) return;
@@ -1023,7 +1059,7 @@ class PiCollabHost {
   }
 
   private reportConnectionWarning(message: string): void {
-    this.connectionWarningReporter.report(message);
+    this.connectionWarningReporter.reportTransient(message);
   }
 
   private scheduleReconnect(): void {
@@ -1049,9 +1085,8 @@ class PiCollabHost {
       }
       this.welcomed = true;
       this.retryDelay = 500;
-      // Only an authenticated, successful welcome starts a new failure
-      // episode. Disconnect and retry transitions intentionally leave the
-      // existing warning window intact.
+      // Socket status updates immediately; only notifications wait for a
+      // stable recovery. A welcome must not clear the warning cooldown.
       this.connectionWarningReporter.onAuthenticatedWelcome();
       this.setStatus("connected");
       this.snapshotReady = this.sendSnapshot();
@@ -1537,7 +1572,7 @@ class PiCollabHost {
   private inputCommands() {
     const names = new Set<string>();
     const available = this.pi.getCommands().filter(c => {
-      if (names.has(c.name) || /^collab(?:-|$)/.test(c.name) || !/^[^\s/\\\u0000-\u001f\u007f]{1,128}$/u.test(c.name)) return false;
+      if (names.has(c.name) || c.name === 'cafe' || /^collab(?:-|$)/.test(c.name) || !/^[^\s/\\\u0000-\u001f\u007f]{1,128}$/u.test(c.name)) return false;
       // Pi lists extensions before templates/skills: preserve native precedence.
       names.add(c.name); return true;
     });
@@ -2121,9 +2156,9 @@ export default function registerPiCollabExtension(pi: ExtensionAPI): void {
         const config = configuration(pi);
         const relayStatus = await ensureLocalRelay({ relayUrl: config.relayUrl, hostToken: config.token });
         if (generation !== lifecycleGeneration) return;
-        if (relayStatus === "unavailable" && ctx.hasUI) {
-          ctx.ui.notify("Pi Cafe Space local relay is unavailable; continuing with reconnect attempts", "warning");
-        }
+        // The health/startup helper is advisory. A failed HTTP probe does not
+        // prove the actual WebSocket connection is unavailable. The host owns
+        // the live status and delayed failure/recovery notifications.
         const nextHost = new PiCollabHost(pi, ctx, config);
         try {
           nextHost.start();
@@ -2132,8 +2167,7 @@ export default function registerPiCollabExtension(pi: ExtensionAPI): void {
           nextHost.stop();
           throw error;
         }
-        if (ctx.hasUI && relayStatus === "started") ctx.ui.notify("Pi Cafe Space relay started automatically", "info");
-        if (ctx.hasUI) ctx.ui.notify("Pi Cafe Space host connecting", "info");
+        if (ctx.hasUI && relayStatus === "started") ctx.ui.notify("Café Space relay started automatically", "info");
       } catch (error) {
         if (generation !== lifecycleGeneration) return;
         try {
@@ -2151,11 +2185,19 @@ export default function registerPiCollabExtension(pi: ExtensionAPI): void {
     return pending;
   };
 
+  const cafe = registerCafe(pi, {
+    config: () => configuration(pi),
+    status: () => host?.status() ?? 'disabled',
+    connect: start,
+    disconnect: () => { lifecycleGeneration++; startPromise = null; host?.stop(); host = null; },
+  });
   pi.on("session_start", async (_event, ctx) => {
     if (autoEnabled(pi)) await start(ctx);
+    cafe.onStart(ctx);
   });
 
   pi.on("session_shutdown", (event) => {
+    cafe.stop();
     lifecycleGeneration++;
     startPromise = null;
     host?.stop(event?.reason);

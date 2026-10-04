@@ -8,21 +8,41 @@ import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 import { root, run } from './build.mjs';
 import { stageRelease } from './release.mjs';
-import { relayBinary, binaryMatches, platformTag } from './candidate-overrides/scripts/relay-path.mjs';
+import { relayBinary, binaryMatches, platformTag, platforms } from './candidate-overrides/scripts/relay-path.mjs';
 export async function freePort() { const server = createServer(); await new Promise(r => server.listen(0, '127.0.0.1', r)); const port = server.address().port; await new Promise(r => server.close(r)); return port; }
 export async function waitHealth(base, child) { for (let i = 0; i < 80; i++) { if (child.exitCode !== null) throw Error('Owned relay exited before readiness'); try { const response = await fetch(base + '/healthz', { signal: AbortSignal.timeout(300) }); if (response.ok) return; } catch {} await new Promise(r => setTimeout(r, 50)); } throw Error('Owned relay readiness timeout'); }
 test('candidate matrix/platform/checksum and self-contained scripts', async () => {
- const { target } = await stageRelease(); const binary = await relayBinary(target);
+ const { target, metadata } = await stageRelease(); const binary = await relayBinary(target);
  assert.match(run(process.execPath, [join(target, 'scripts/verify-artifacts.mjs')]), /PASS/);
  assert.match(run(process.execPath, [join(target, 'scripts/source-verify.mjs'),'check']), /Prebuilt artifact verification only/);
  assert.match(run(process.execPath, [join(target, 'scripts/source-verify.mjs'),'test']), /Prebuilt artifact verification only/);
- assert.throws(() => platformTag('win32', 'arm64')); assert.equal(binaryMatches(await readFile(binary), 'linux-amd64'), false);
- await assert.rejects(relayBinary(target, 'linux-arm64'));
- await assert.rejects(stageRelease(true), /incomplete/);
+ assert.throws(() => platformTag('win32', 'arm64'));
+ const different = platforms.find(tag => tag !== platformTag());
+ assert.equal(binaryMatches(await readFile(binary), different), false);
+ const missing = platforms.find(tag => !metadata.platforms[tag]);
+ if (missing) {
+  await assert.rejects(relayBinary(target, missing));
+  await assert.rejects(stageRelease(true), /incomplete/);
+ } else {
+  await stageRelease(true);
+ }
  const manifest = JSON.parse(await readFile(join(target, 'package.json'), 'utf8')); assert.equal(manifest.private, true); assert.equal(manifest.engines.node, '>=22.19.0');assert.deepEqual(manifest.dependencies,{ws:'8.21.3'});assert.equal(manifest.devDependencies['@assistant-ui/core'],'0.3.17');
- for (const name of ['build-source.mjs','verify-artifacts.mjs','run-relay.mjs','start-relay.ps1','stop-relay.ps1','start-pi.ps1']) await readFile(join(target,'scripts',name));
+ for (const name of ['build-source.mjs','verify-artifacts.mjs','run-relay.mjs','start-relay.ps1','stop-relay.ps1','start-pi.ps1','remote/setup.mjs','remote/run.mjs']) await readFile(join(target,'scripts',name));
+ assert.match(run(process.execPath,[join(target,'scripts/remote/setup.mjs'),'--help']),/--output/);
+ assert.match(run(process.execPath,[join(target,'scripts/remote/run.mjs'),'--help']),/--profile/);
+ assert.match(await readFile(join(target,'README.md'),'utf8'),/多设备、多人协作/);
  assert.throws(() => run(process.execPath, [join(target,'scripts/build-source.mjs')]), /complete source checkout/);
  assert.equal((await readdir(join(target, 'dist/relay'))).includes('index.js'), false);
+});
+test('mismatched Go source digests cannot enter a release', async () => {
+ const path = join(root, '.refactor/bin', platformTag(), 'build.json');
+ const before = await readFile(path, 'utf8');
+ try {
+  await writeFile(path, JSON.stringify({ ...JSON.parse(before), goDigest: '0'.repeat(64) }));
+  await assert.rejects(stageRelease(), /Matrix binary identity\/platform\/checksum mismatch/);
+ } finally {
+  await writeFile(path, before);
+ }
 });
 test('unknown release output is retained rather than deleted on restaging', async () => {
  const {target}=await stageRelease();const unknown=join(target,'user-owned.txt');await writeFile(unknown,'keep this file');

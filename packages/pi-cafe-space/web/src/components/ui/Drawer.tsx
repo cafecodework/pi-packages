@@ -24,7 +24,7 @@ function drawerTabStops(root: HTMLElement): HTMLElement[] {
 export function Drawer({ label, closeLabel, children, onClose, restoreFocusTo, compact = false }: { compact?: boolean; label: string; closeLabel: string; children: ReactNode; onClose: () => void; restoreFocusTo: HTMLElement | null }) {
   const container = useUiPortal(); const content = useRef<HTMLDivElement>(null);
   return <Sheet open onOpenChange={open => { if (!open) onClose(); }}>
-    <SheetContent ref={content} container={container} showCloseButton={false} className={`gap-0 overflow-auto overscroll-contain p-4 data-[side=right]:w-[min(380px,calc(100vw-24px))] [&_button]:max-w-full [&_a]:max-w-full ${compact ? styles.compact : ''}`}
+    <SheetContent ref={content} container={container} showCloseButton={false} className={`${styles.drawer} gap-0 overflow-auto overscroll-contain p-4 data-[side=right]:w-[min(380px,calc(100vw-24px))] [&_button]:max-w-full [&_a]:max-w-full ${compact ? styles.compact : ''}`}
       aria-label={label} aria-modal="true" aria-describedby={undefined}
       initialFocus={() => {
         if (!content.current) return false;

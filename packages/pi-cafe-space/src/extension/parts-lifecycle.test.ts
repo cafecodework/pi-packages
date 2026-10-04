@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, writeFile, truncate, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile, truncate, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -44,7 +44,7 @@ const content = [
 ];
 const assistant = (blocks = content) => ({ role: 'assistant', content: blocks, timestamp: 1, stopReason: 'toolUse' });
 async function harness(initial: unknown[] = []) {
-  const root = await mkdtemp(join(tmpdir(), 'cafe-parts-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'cafe-parts-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const sessionDir = join(root, 'custom-sessions'); await mkdir(sessionDir);
   const relay = await createRelayServer({ host: '127.0.0.1', port: 0, hostToken: 'host-token', clientToken: 'client-token', allowedOrigins: [], logger: { info() {}, warn() {}, error() {} } }).listen();
@@ -54,7 +54,7 @@ async function harness(initial: unknown[] = []) {
   const handlers = new Map<string, Handler>();
   const commands = new Map<string, Handler>();
   let sessionName: string | undefined;
-  const pi = { registerFlag() {}, getFlag(name: string) { return name === 'collab' ? true : undefined; }, on(name: string, fn: Handler) { handlers.set(name, fn); }, registerCommand(name: string, command: { handler: Handler }) { commands.set(name, command.handler); }, getSessionName() { return sessionName; }, setSessionName: vi.fn((name: string) => { sessionName = name; handlers.get('session_info_changed')?.({ name }, ctx); }), getCommands: vi.fn(() => [{ name: 'review:2', description: 'Review locally', source: 'extension', sourceInfo: { path: 'hidden-path' } }, { name: 'skill:check', source: 'skill' }, { name: 'template', source: 'prompt' }, { name: 'review:2', source: 'prompt', description: 'Shadowed template' }, { name: 'collab-session-control', source: 'extension' }]), sendUserMessage: vi.fn(), getThinkingLevel() { return 'off'; } } as unknown as ExtensionAPI;
+  const pi = { registerFlag() {}, getFlag(name: string) { return name === 'collab' ? true : undefined; }, on(name: string, fn: Handler) { handlers.set(name, fn); }, registerCommand(name: string, command: { handler: Handler }) { commands.set(name, command.handler); }, getSessionName() { return sessionName; }, setSessionName: vi.fn((name: string) => { sessionName = name; handlers.get('session_info_changed')?.({ name }, ctx); }), getCommands: vi.fn(() => [{ name: 'review:2', description: 'Review locally', source: 'extension', sourceInfo: { path: 'hidden-path' } }, { name: 'skill:check', source: 'skill' }, { name: 'template', source: 'prompt' }, { name: 'review:2', source: 'prompt', description: 'Shadowed template' }, { name: 'collab-session-control', source: 'extension' }, { name: 'cafe', source: 'extension' }]), sendUserMessage: vi.fn(), getThinkingLevel() { return 'off'; } } as unknown as ExtensionAPI;
   let branch = initial;
   const ctx = { cwd: root, hasUI: false, isIdle: () => true, hasPendingMessages: () => false, model: null, sessionManager: { getBranch: () => branch, getSessionId: () => 'current', getLeafId: () => null, getSessionDir: () => sessionDir } } as unknown as ExtensionContext;
   register(pi);
@@ -86,7 +86,7 @@ it('commands use native expansion; bounded references reuse file guards and fenc
   expect(inventory.data.commands.map((x: any) => x.name)).toEqual(['review:2', 'skill:check', 'template']);
   expect(JSON.stringify(inventory.data)).not.toContain('hidden-path');
   expect(inventory.data.commands[0].source).toBe('extension');
-  for (const command of ['/missing', '/reload', '/collab-session-control fake']) expect((await request({ name: 'run_command', command })).code).toBe('COMMAND_UNAVAILABLE');
+  for (const command of ['/missing', '/reload', '/collab-session-control fake', '/cafe', '/cafe share']) expect((await request({ name: 'run_command', command })).code).toBe('COMMAND_UNAVAILABLE');
   expect(h.pi.sendUserMessage).not.toHaveBeenCalled();
   expect((await request({ name: 'run_command', command: '/review:2\targument' })).status).toBe('dispatched');
   expect(h.pi.sendUserMessage).toHaveBeenLastCalledWith('/review:2 argument', { expandPromptTemplates: true });

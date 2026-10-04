@@ -48,6 +48,14 @@ func lockRegistry(path string) (func(), error) {
 	return func() { once.Do(func() { windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, overlap); f.Close() }) }, nil
 }
 func prepareProcess(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} }
+func RunSupervisor(args []string) (int, bool) { return 0, false }
+func startOwnedProcess(cmd *exec.Cmd) (func(), error) {
+	prepareProcess(cmd)
+	if err := cmd.Start(); err != nil { return nil, err }
+	release, err := ownProcess(cmd)
+	if err != nil { _ = cmd.Process.Kill(); _ = cmd.Wait(); return nil, err }
+	return release, nil
+}
 
 // Closing this job kills only this manager-owned process tree, including native
 // tool children. Windows also closes the handle if the Relay crashes/exits.

@@ -1,5 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { CONNECTION_WARNING_INTERVAL_MS, ConnectionWarningReporter, ConnectionWarningThrottle } from "./connection-warning.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CONNECTION_WARNING_GRACE_MS, CONNECTION_WARNING_INTERVAL_MS, CONNECTION_RECOVERY_STABLE_MS, ConnectionWarningReporter, ConnectionWarningThrottle } from "./connection-warning.js";
+
+afterEach(() => { vi.useRealTimers(); });
+
+describe('delayed connection notifications', () => {
+  it('does not warn when the authenticated connection recovers during the grace period', () => {
+    vi.useFakeTimers(); const warn=vi.fn(), restored=vi.fn(); const reporter=new ConnectionWarningReporter(warn,restored);
+    reporter.reportTransient('temporary failure'); vi.advanceTimersByTime(CONNECTION_WARNING_GRACE_MS-1);
+    expect(warn).not.toHaveBeenCalled(); reporter.onAuthenticatedWelcome(); vi.advanceTimersByTime(60_000);
+    expect(warn).not.toHaveBeenCalled(); expect(restored).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('reports a persistent failure once, without resetting the deadline on every retry', () => {
+    vi.useFakeTimers(); const warn=vi.fn(), restored=vi.fn(); const reporter=new ConnectionWarningReporter(warn,restored);
+    reporter.reportTransient('first error'); vi.advanceTimersByTime(2000); reporter.reportTransient('latest error');
+    vi.advanceTimersByTime(CONNECTION_WARNING_GRACE_MS-2000); expect(warn).toHaveBeenCalledExactlyOnceWith('latest error');
+    reporter.reportTransient('another error'); vi.advanceTimersByTime(CONNECTION_WARNING_GRACE_MS); expect(warn).toHaveBeenCalledTimes(1);
+    reporter.onAuthenticatedWelcome(); reporter.onAuthenticatedWelcome(); expect(restored).not.toHaveBeenCalled(); vi.advanceTimersByTime(CONNECTION_RECOVERY_STABLE_MS); expect(restored).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_000); expect(warn).toHaveBeenCalledTimes(1);
+  });
+  it('cancels on explicit stop without announcing recovery, then permits a new episode', () => {
+    vi.useFakeTimers(); const warn=vi.fn(), restored=vi.fn(); const reporter=new ConnectionWarningReporter(warn,restored);
+    reporter.reportTransient('stale lifecycle'); reporter.onExplicitStop(); vi.advanceTimersByTime(CONNECTION_WARNING_GRACE_MS);
+    expect(warn).not.toHaveBeenCalled(); expect(restored).not.toHaveBeenCalled();
+    reporter.reportTransient('new lifecycle'); vi.advanceTimersByTime(CONNECTION_WARNING_GRACE_MS); expect(warn).toHaveBeenCalledExactlyOnceWith('new lifecycle');
+    reporter.onExplicitStop(); reporter.onAuthenticatedWelcome(); expect(restored).not.toHaveBeenCalled();
+  });
+});
 
 describe("connection warning throttle", () => {
   it("allows the first warning, suppresses repeats during the interval, and resets", () => {
@@ -59,9 +85,9 @@ describe("connection warning throttle", () => {
     expect(reporter.report("relay connection could not be created: ECONNREFUSED", first + 9_500)).toBe(false);
     expect(warnings).toEqual(["relay connection could not be created: ECONNREFUSED"]);
 
-    // A successful authenticated welcome begins a new episode.
+    // A welcome cancels transient warnings but must not reset the cooldown.
     reporter.onAuthenticatedWelcome();
-    expect(reporter.report("relay connection closed (1006)", first + 10_000)).toBe(true);
+    expect(reporter.report("relay connection closed (1006)", first + 10_000)).toBe(false);
     // Failed retries still remain in that same episode.
     expect(reporter.report("relay connection: ECONNREFUSED", first + 10_001)).toBe(false);
 
@@ -73,6 +99,6 @@ describe("connection warning throttle", () => {
     reporter.onExplicitStop();
     expect(reporter.report("relay connection could not be created: ECONNREFUSED", first + 20_002)).toBe(true);
 
-    expect(warnings).toHaveLength(4);
+    expect(warnings).toHaveLength(3);
   });
 });

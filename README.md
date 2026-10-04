@@ -7,3 +7,67 @@
 - [`@cafecodework/pi-context`](./packages/pi-context) — 提供 `/context` 命令，显示上下文窗口使用量和分类估算。
 - [`@cafecodework/pi-subagent`](./packages/pi-subagent) — 提供 `subagent` 工具，在隔离的 Pi 子进程中执行独立任务。
 - [`@cafecodework/pi-theme-cafecode`](./packages/pi-theme-cafecode) — Claude 风格的 Pi 主题和界面扩展。
+
+## 推荐包
+
+### [`i-have-adhd`](https://github.com/ayghri/i-have-adhd)
+
+针对 ADHD / 易分心场景的交互规范扩展：强行要求第一行给动作、单步编号、抑制无关发散并提供确定性时间预估。
+
+- **安装**：
+  ```bash
+  pi install https://github.com/ayghri/i-have-adhd
+  ```
+- **默认启用**：
+  创建全局标志文件即可默认开启（每个新会话自动生效）：
+  ```bash
+  touch ~/.pi/agent/.i-have-adhd-always
+  ```
+  *(关闭方式：删除该文件 `rm ~/.pi/agent/.i-have-adhd-always`，或在会话中输入 `stop adhd mode` 临时停用)*
+
+### [`ponytail`](https://github.com/DietrichGebert/ponytail)
+
+极简实用主义开发技能：避免过度工程与无意义胶水代码，优先使用标准库和最少代码行解决问题。
+
+- **安装**：
+  ```bash
+  pi install git:github.com/DietrichGebert/ponytail
+  ```
+- **用法**：
+  支持 `/ponytail lite|full|ultra` 切换强度，或在对话中使用 `/ponytail-review` / `/ponytail-audit` 进行代码去臃肿审查。
+
+### [`@ff-labs/pi-fff`](https://github.com/dmtrKovalenko/fff)
+
+Rust 原生、SIMD 加速的文件与文本搜索扩展，替代 Pi 默认的 `find` 和 `grep`（提供 `fffind`、`ffgrep` 工具）。
+
+- **安装**：
+  ```bash
+  pi install npm:@ff-labs/pi-fff
+  ```
+- **推荐配置**（避免全量索引 Home 目录耗费资源）：
+  在 `~/.pi/agent/pi-fff.json` 中配置：
+  ```json
+  {
+    "enableHomeDirScanning": false
+  }
+  ```
+
+### [`@benvargas/pi-openai-fast`](https://www.npmjs.com/package/@benvargas/pi-openai-fast)
+
+OpenAI Fast 模式切换扩展，为支持的模型开启优先响应服务等级（priority service tier）。
+
+- **安装**：
+  ```bash
+  pi install npm:@benvargas/pi-openai-fast
+  ```
+
+### [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question)
+
+结构化提问交互扩展。当模型需要确认决策或避免猜测时，可向用户提出带类型选项的选择题问卷。
+
+- **安装**：
+  ```bash
+  pi install npm:@juicesharp/rpiv-ask-user-question
+  ```
+
+

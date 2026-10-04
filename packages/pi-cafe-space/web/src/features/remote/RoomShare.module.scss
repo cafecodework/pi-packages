@@ -1,0 +1,17 @@
+.content { display: grid; gap: 16px; min-width: 0; }
+.identity { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.identity strong { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.identity span { color: var(--cafe-muted); font-size: 12px; white-space: nowrap; }
+.identity span[data-online=true] { color: var(--cafe-accent); }
+.qr { display: flex; justify-content: center; }
+.qr svg { display: block; width: min(100%, 240px); height: auto; background: #fff; border-radius: 6px; }
+.help { margin: 0; color: var(--cafe-muted); font-size: 12px; line-height: 1.65; }
+.field { display: grid; gap: 8px; min-width: 0; }
+.field label { font-size: 13px; }
+.field input { min-width: 0; width: 100%; font-family: var(--cafe-mono); font-size: 12px; }
+.management { display: grid; gap: 8px; border-top: 1px solid var(--cafe-line); padding-top: 12px; }
+.form { display: grid; gap: 12px; border: 1px solid var(--cafe-line); border-radius: var(--cafe-radius-control); padding: 12px; }
+.confirm { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--cafe-line); border-radius: var(--cafe-radius-control); font-size: 12px; line-height: 1.6; }
+.confirm p { margin: 0; }
+.error { margin: 0; color: var(--cafe-danger); font-size: 12px; line-height: 1.6; }
+@media(max-width:480px) { .field input { font-size: 16px; } }

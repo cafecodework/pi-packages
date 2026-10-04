@@ -60,7 +60,7 @@ export class CommandGateway {
     #latest = new Map<string, string>();
     #disposed = false;
     #unsubscribers: (() => void)[];
-    constructor(private readonly client: ClientPort, private readonly store: CollabStore) { this.#unsubscribers = [client.subscribe(event => this.#event(event)), store.subscribeImmediate(() => this.#scopeChanged())]; }
+    constructor(private readonly client: ClientPort, private readonly store: CollabStore, private readonly admit?: (payload: CommandPayload, scope: HostScope) => string | null) { this.#unsubscribers = [client.subscribe(event => this.#event(event)), store.subscribeImmediate(() => this.#scopeChanged())]; }
     stats = (): {
         count: number;
         bytes: number;
@@ -87,6 +87,8 @@ export class CommandGateway {
             return Promise.resolve(failure('HOST_OFFLINE'));
         if (host.info.connected && host.info.ready === false)
             return Promise.resolve(failure('HOST_NOT_READY'));
+        const denied = this.admit?.(payload, scope);
+        if (denied) return Promise.resolve(failure(denied));
         if (['list_commands', 'run_command'].includes(payload.name) || payload.name === 'prompt' && payload.files !== undefined) {
             if (host.snapshot.inputAssist !== true) return Promise.resolve(failure('INPUT_ASSIST_UNAVAILABLE'));
             if (payload.name === 'run_command' && (host.snapshot.phase !== 'idle' || host.snapshot.hasPendingMessages || [...this.#pending.values()].some(p => p.scope.hostId === scope.hostId && p.request.payload.name === 'run_command'))) return Promise.resolve(failure('SESSION_BUSY'));

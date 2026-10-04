@@ -28,7 +28,7 @@ it('StrictMode owns one live socket; login, host selection and Composer dispatch
   const i18n = createI18n(); await i18n.changeLanguage('en');
   const mounted = render(<StrictMode><I18nextProvider i18n={i18n}><App createOwner={createOwner} /></I18nextProvider></StrictMode>);
   expect(sockets).toHaveLength(0);
-  fireEvent.change(screen.getByLabelText('Client token'), { target: { value: 'synthetic-secret' } });
+  fireEvent.change(await screen.findByLabelText('Client token'), { target: { value: 'synthetic-secret' } });
   fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
   expect(sockets).toHaveLength(1); const socket = sockets[0]!;
   await act(async () => { socket.onopen?.(); socket.emit({ type: 'welcome', protocolVersion: 1, connectionId: 'c', peerRole: 'client', roomId: 'main', hostConnected: true }); });

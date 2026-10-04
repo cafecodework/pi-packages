@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { AppOwner } from '../../app/owner';
 import { useCollabStore } from '../../state/useCollabStore';
-import { managedRequest, parseManagedInventory, parseManagedSession, type ManagedInventory, type ManagedRequest, type ManagedSession } from '../../services/http/workspace';
+import { useRemoteState } from '../../services/remote/useRemoteState';
+import { parseManagedInventory, parseManagedSession, type ManagedInventory, type ManagedRequest, type ManagedSession } from '../../services/http/workspace';
 import { Button, Input } from '../../components/ui/Controls';
 import { ChoiceSelect } from '../../components/ui/ChoiceSelect';
 import { Drawer } from '../../components/ui/Drawer';
@@ -13,10 +14,14 @@ import styles from './History.module.scss';
 
 export function useManagedSessions(owner: AppOwner, room: string, roomBase: string, supported: boolean) {
   const state = useCollabStore(owner.store, s=>s); const navigate = useNavigate();
+  const remote = useRemoteState(owner.remote);
+  const available = supported && (!remote.enabled || remote.info?.managed === true);
+  const canManage = owner.remote.canManage();
+  const canClose = owner.remote.canCloseManaged();
   const liveKey = () => { const s=owner.store.getSnapshot(); return JSON.stringify([room,s.connection.roomId,s.connection.generation,s.connection.status,s.viewGeneration]); };
   const key = liveKey();
   const current = useRef(key); current.current = key;
-  const enabled = supported && state.connection.status === 'authenticated';
+  const enabled = available && state.connection.status === 'authenticated';
   const [inventory,setInventory] = useState<ManagedInventory>({projects:[],sessions:[],maxActive:8});
   const [error,setError] = useState<string|null>(null);
   const [busy,setBusy] = useState(false); const latch = useRef(false);
@@ -26,12 +31,12 @@ export function useManagedSessions(owner: AppOwner, room: string, roomBase: stri
   const [revision,setRevision] = useState(0);
   const refresh = useCallback(()=>setRevision(n=>n+1),[]);
   useEffect(()=>{setDialog(null);setError(null);setPending(null);},[key]);
-  useEffect(()=>{setInventory({projects:[],sessions:[],maxActive:8});},[room]);
+  useEffect(()=>{setInventory({projects:[],sessions:[],maxActive:8});},[room,state.connection.generation,state.connection.status]);
   useEffect(()=>{
     if(!enabled)return;
     const controller=new AbortController(); let timer: ReturnType<typeof setTimeout>;
     const poll=async()=>{
-      try {const data=parseManagedInventory(await managedRequest(owner.storage.get('token')??'',{room,operation:'list'},controller.signal),room);if(!controller.signal.aborted&&current.current===key&&liveKey()===key)setInventory(data);}
+      try {const data=parseManagedInventory(await owner.workspace({room,operation:'list'},controller.signal),room);if(!controller.signal.aborted&&current.current===key&&liveKey()===key)setInventory(data);}
       catch(e){if(!controller.signal.aborted&&current.current===key&&liveKey()===key)setError(e instanceof Error?e.message:'MANAGER_UNAVAILABLE');}
       if(!controller.signal.aborted)timer=setTimeout(poll,3000);
     };
@@ -49,18 +54,18 @@ export function useManagedSessions(owner: AppOwner, room: string, roomBase: stri
   },[pending,key,state.hosts,state.selectedHostId,inventory,owner,navigate,roomBase]);
   useEffect(()=>{if(dialog?.mode==='create'&&!project&&inventory.projects[0])setProject(inventory.projects[0].id);},[dialog,project,inventory.projects]);
   const openNew=(trigger:HTMLElement)=>{
-    setError(null);setName('');
+    setError(remote.enabled && !canManage && available ? 'FORBIDDEN' : null);setName('');
     const cwd=owner.store.scope()?.cwd;
     setProject(inventory.projects.find(p=>p.cwd===cwd)?.id??inventory.projects[0]?.id??'');
     setDialog({mode:'create',trigger,key,id:crypto.randomUUID()});refresh();
   };
   const closeSession=(id:string,trigger:HTMLElement)=>{setError(null);setDialog({mode:'close',id,trigger,key});};
   const operate=async(request:ManagedRequest)=>{
-    if(!enabled||latch.current||request.room!==room||liveKey()!==key)return;
+    if(!enabled||!canManage||request.operation==='close'&&!canClose||latch.current||request.room!==room||liveKey()!==key)return;
     const fence=key, selected=state.selectedHostId;
     latch.current=true;setBusy(true);setError(null);
     try {
-      const record=parseManagedSession(await managedRequest(owner.storage.get('token')??'',request),room);
+      const record=parseManagedSession(await owner.workspace(request),room);
       if(current.current!==fence||liveKey()!==fence)return;
       if(record.status==='failed'){setError(record.error??'MANAGED_START_FAILED');refresh();return;}
       setDialog(null);refresh();
@@ -68,7 +73,11 @@ export function useManagedSessions(owner: AppOwner, room: string, roomBase: stri
     }catch(e){if(current.current===fence&&liveKey()===fence){setError(e instanceof Error?e.message:'RESULT_UNKNOWN');refresh();}}
     finally{latch.current=false;setBusy(false);}
   };
-  return { owner,room,enabled,supported,inventory,error,busy,dialog,name,project,pending,setName,setProject,setDialog,openNew,closeSession,operate,refresh,key };
+  const viewSession = (hostId: string) => {
+    if (!enabled || !owner.store.getSnapshot().hosts.has(hostId)) return;
+    owner.selectHost(hostId); navigate(roomBase || '/');
+  };
+  return { owner,room,enabled,supported:available,canManage,canClose,inventory,error,busy,dialog,name,project,pending,setName,setProject,setDialog,openNew,closeSession,operate,viewSession,refresh,key };
 }
 export type ManagedController = ReturnType<typeof useManagedSessions>;
 export function ManagedSessionList({control:c,query=''}:{control:ManagedController;query?:string}) {
@@ -83,8 +92,8 @@ export function ManagedSessionList({control:c,query=''}:{control:ManagedControll
       const active=['starting','ready','stopping'].includes(s.status);
       return <li key={s.id}><div className={styles.managedIdentity}><strong>{host?.snapshot?.sessionName||s.title||s.name}</strong><small>{t(`managedStatus.${s.status}`)}</small></div>
         <div className={styles.managedActions}>
-          <Button variant="quiet" disabled={!c.enabled||c.busy||s.status==='stopping'||!!c.pending} onClick={()=>void c.operate({room:c.room,operation:'open',id:s.id})}>{t(active?'viewSession':'openSession')}</Button>
-          {active&&<Button variant="quiet" disabled={!c.enabled||c.busy||s.status==='stopping'} onClick={e=>c.closeSession(s.id,e.currentTarget)}>{t('closeManaged')}</Button>}
+          <Button variant="quiet" disabled={!c.enabled||c.busy||s.status==='stopping'||!!c.pending||(!active&&!c.canManage)||(active&&!host?.info.connected)} onClick={()=>active?c.viewSession(s.hostId):void c.operate({room:c.room,operation:'open',id:s.id})}>{t(active?'viewSession':'openSession')}</Button>
+          {active&&c.canClose&&<Button variant="quiet" disabled={!c.enabled||c.busy||s.status==='stopping'} onClick={e=>c.closeSession(s.id,e.currentTarget)}>{t('closeManaged')}</Button>}
         </div>
         {s.error&&<small role="status">{t(`errors.${s.error}`,{defaultValue:t('managedFailed')})}</small>}
       </li>;
@@ -92,7 +101,8 @@ export function ManagedSessionList({control:c,query=''}:{control:ManagedControll
   </section>;
 }
 export function ManagedSessionDialog({control:c}:{control:ManagedController}) {
-  const {t}=useTranslation();
+  const {t,i18n}=useTranslation();
+  const zh=i18n.language.startsWith('zh');
   const dialog=c.dialog;
   if(!dialog||dialog.key!==c.key)return null;
   const creating=dialog.mode==='create';const id='managed-session-name';
@@ -101,14 +111,15 @@ export function ManagedSessionDialog({control:c}:{control:ManagedController}) {
     <form className={styles.actionForm} onSubmit={e=>{e.preventDefault();if(creating&&valid)void c.operate({room:c.room,operation:'create',id:dialog.id,projectId:c.project,name:c.name.trim()});else if(!creating)void c.operate({room:c.room,operation:'close',id:dialog.id});}}><FieldGroup>
       {creating?<>
         <p>{t('independentSessionHint')}</p>
-        {!c.supported?<p role="alert">{t('managedUnavailable')}</p>:<>
+        <p className={styles.hint}>{zh ? '这里会在办公电脑启动另一个 Pi 进程，不会切换当前实例的会话。若只需要当前 Pi 开始新会话，请使用聊天区域的「新建会话」或 /new。' : 'This starts another Pi process on the office computer. For a new session in the current Pi, use New session in the conversation or /new.'}</p>
+        {!c.supported?<p role="alert">{zh ? '房主尚未启用独立实例管理。请在办公电脑配置允许的项目目录和 Pi 启动参数；不会默认开放任意目录或把访客升级为管理员。' : 'Independent instances are not enabled by the owner. Configure approved project directories and Pi startup paths on the office computer. Arbitrary paths and administrator privileges are not granted by default.'}</p>:<>
           <ChoiceSelect label={t('project')} value={c.project} disabled={c.busy} items={c.inventory.projects.map(p=>({value:p.id,label:p.name}))} onValueChange={c.setProject}/>
           <p className={styles.hint}>{c.inventory.projects.find(p=>p.id===c.project)?.cwd||t('managedNoProject')}</p>
           <Field><FieldLabel htmlFor={id}>{t('sessionTitle')}</FieldLabel><Input id={id} maxLength={256} required value={c.name} disabled={c.busy} onChange={e=>c.setName(e.target.value)}/></Field>
         </>}
       </>:<><p>{c.inventory.sessions.find(s=>s.id===dialog.id)?.name}</p><p>{t('closeManagedHint')}</p></>}
       {c.error&&<p role="alert">{c.error==='RESULT_UNKNOWN'?t('managedUnknown'):t(`errors.${c.error}`,{defaultValue:t('managedFailed')})}</p>}
-      <div className={styles.formActions}><Button variant="quiet" onClick={()=>c.setDialog(null)}>{t('cancel')}</Button><Button type="submit" variant="primary" loading={c.busy} disabled={!c.enabled||c.busy||c.error==='RESULT_UNKNOWN'||(creating&&(!valid||!c.inventory.projects.some(p=>p.id===c.project)))}>{t(creating?'createSession':'closeManaged')}</Button></div>
+      <div className={styles.formActions}><Button variant="quiet" onClick={()=>c.setDialog(null)}>{t('cancel')}</Button><Button type="submit" variant="primary" loading={c.busy} disabled={!c.enabled||!c.canManage||c.busy||c.error==='RESULT_UNKNOWN'||(creating&&(!valid||!c.inventory.projects.some(p=>p.id===c.project)))}>{t(creating?'createSession':'closeManaged')}</Button></div>
     </FieldGroup></form>
   </Drawer>;
 }

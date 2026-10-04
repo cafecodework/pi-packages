@@ -28,6 +28,7 @@ async function setup(path: string, cached = false) {
   };
   const i18n = createI18n(); await i18n.changeLanguage('en');
   const mounted = render(<StrictMode><I18nextProvider i18n={i18n}><App createOwner={createOwner} /></I18nextProvider></StrictMode>);
+  await waitFor(() => expect(screen.queryByText('Connecting to your workspace…')).not.toBeInTheDocument());
   const owner = () => owners.at(-1)!;
   const active = () => sockets.filter(s => !s.closed);
   const join = async (room: string) => {

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/config"
+	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/managed"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/service"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/webui"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -23,6 +25,7 @@ import (
 var version = "development"
 
 func main() {
+	if code, handled := managed.RunSupervisor(os.Args[1:]); handled { os.Exit(code) }
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
 		_, digest, err := webui.Embedded()
 		if err != nil {
@@ -33,7 +36,7 @@ func main() {
 		return
 	}
 	env := map[string]string{}
-	for _, key := range []string{"PI_COLLAB_HOST", "PI_COLLAB_PORT", "PI_COLLAB_HOST_TOKEN", "PI_COLLAB_CLIENT_TOKEN", "PI_COLLAB_ALLOWED_ORIGINS", "PI_COLLAB_MANAGED_CONFIG"} {
+	for _, key := range []string{"PI_COLLAB_HOST", "PI_COLLAB_PORT", "PI_COLLAB_HOST_TOKEN", "PI_COLLAB_CLIENT_TOKEN", "PI_COLLAB_ALLOWED_ORIGINS", "PI_COLLAB_MANAGED_CONFIG", "PI_CAFE_REMOTE_CONFIG", "PI_CAFE_CREDENTIALS_FILE"} {
 		if v, ok := os.LookupEnv(key); ok {
 			env[key] = v
 		}
@@ -42,6 +45,11 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if cfg.CredentialsFile == "" && config.NeedsLocalSetup(cfg) {
+		home, e := os.UserHomeDir()
+		if e != nil { fmt.Fprintln(os.Stderr, "Cannot locate local Café Space configuration"); os.Exit(1) }
+		cfg.CredentialsFile = filepath.Join(home, ".config", "pi-cafe-space", fmt.Sprintf("credentials-%d.json", cfg.Port))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,4 +1,6 @@
-export const CONNECTION_WARNING_INTERVAL_MS = 60_000;
+export const CONNECTION_WARNING_INTERVAL_MS = 120_000;
+export const CONNECTION_WARNING_GRACE_MS = 10_000;
+export const CONNECTION_RECOVERY_STABLE_MS = 60_000;
 
 /**
  * Limits repeated connection-failure notifications without changing the
@@ -28,15 +30,43 @@ export class ConnectionWarningThrottle {
 /**
  * Owns the warning lifecycle separately from socket status/reconnect state.
  * Failed construction, error, and close transitions all share one window;
- * only an explicit stop or an authenticated welcome starts a new episode.
+ * short reconnects never reset the notification budget. Status stays immediate;
+ * only notifications are delayed, and recovery requires a stable connection.
  */
 export class ConnectionWarningReporter {
   private readonly throttle = new ConnectionWarningThrottle();
 
-  constructor(private readonly notify: (message: string) => void) {}
+  private pending: ReturnType<typeof setTimeout> | null = null;
+  private pendingMessage: string | null = null;
+  private warned = false;
+  private recovery: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    private readonly notify: (message: string) => void,
+    private readonly recovered?: () => void,
+  ) {}
+
+  // Retry errors update the detail but do not postpone the original deadline.
+  // The owner cancels this pending warning on authenticated welcome or stop.
+  reportTransient(message: string): void {
+    if (this.recovery !== null) clearTimeout(this.recovery);
+    this.recovery = null;
+    this.pendingMessage = message;
+    if (this.warned || this.pending !== null) return;
+    this.pending = setTimeout(() => {
+      this.pending = null;
+      const detail = this.pendingMessage;
+      this.pendingMessage = null;
+      if (detail !== null) this.report(detail);
+    }, CONNECTION_WARNING_GRACE_MS);
+    this.pending.unref?.();
+  }
 
   report(message: string, now = Date.now()): boolean {
-    if (!this.throttle.allow(now)) return false;
+    if (this.recovery !== null) clearTimeout(this.recovery);
+    this.recovery = null;
+    if (this.warned || !this.throttle.allow(now)) return false;
+    this.warned = true;
     try {
       this.notify(message);
     } catch {
@@ -47,11 +77,26 @@ export class ConnectionWarningReporter {
   }
 
   reset(): void {
+    if (this.recovery !== null) clearTimeout(this.recovery);
+    this.recovery = null;
+    if (this.pending !== null) clearTimeout(this.pending);
+    this.pending = null;
+    this.pendingMessage = null;
+    this.warned = false;
     this.throttle.reset();
   }
 
   onAuthenticatedWelcome(): void {
-    this.reset();
+    if (this.pending !== null) clearTimeout(this.pending);
+    this.pending = null; this.pendingMessage = null;
+    if (!this.warned || this.recovery !== null) return;
+    this.recovery = setTimeout(() => {
+      this.recovery = null;
+      if (!this.warned) return;
+      this.warned = false;
+      try { this.recovered?.(); } catch { /* the old UI may already be disposed */ }
+    }, CONNECTION_RECOVERY_STABLE_MS);
+    this.recovery.unref?.();
   }
 
   onExplicitStop(): void {

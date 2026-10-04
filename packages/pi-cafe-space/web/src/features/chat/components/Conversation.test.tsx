@@ -35,8 +35,8 @@ it('replaces partial tool output in place without losing disclosure or reading p
   const { container, rerender } = render(<Conversation snapshot={s} scope={scope} />);
   const details = container.querySelector<HTMLDetailsElement>('[data-tool-id="t1"]')!;
   const log = screen.getByRole('log'); log.scrollTop = 37;
-  expect(details.open).toBe(true);
-  fireEvent.click(details.querySelector('summary')!); fireEvent.click(details.querySelector('summary')!);
+  expect(details.open).toBe(false);
+  fireEvent.click(details.querySelector('summary')!);
   rerender(<Conversation snapshot={{ ...s, tools: s.tools.map(tool => ({ ...tool, output: 'updated', status: 'complete' })) }} scope={scope} />);
   expect(container.querySelector('[data-tool-id="t1"]')).toBe(details);
   expect(details.open).toBe(true);

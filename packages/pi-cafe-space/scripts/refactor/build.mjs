@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'vite';
+import { build as bundle } from 'esbuild';
 import { stageAssets, ordinaryDirectory } from './assets.mjs';
 import { hashRouterOnly } from './hash-router-only.mjs';
 export const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -69,7 +70,7 @@ async function notices(ids) {
   const metadataOnly = JSON.parse(await readFile(new URL('./licenses/metadata-only.json', import.meta.url), 'utf8'));
   const mit = (await readFile(join(root, 'LICENSE'), 'utf8')).split('Permission is hereby granted')[1];
   if (!mit) throw Error('MIT reference terms missing');
-  const result = ['Third-party notices for the embedded Web and Go relay. Pi runtime dependencies retain their own package licenses.',
+  const result = ['Third-party notices for the embedded Web, terminal utilities and Go relay. Pi runtime dependencies retain their own package licenses.',
     '\n## shadcn/ui — local Base Nova registry components\n' + await readFile(join(root, 'web/src/components/ui/shadcn/LICENSE'), 'utf8')];
   for (const [name, record] of [...records].sort(([a], [b]) => a.localeCompare(b))) {
     const files = (await readdir(record.directory)).filter(name => /^(LICENSE|LICENCE|COPYING|NOTICE)(\.[\w-]+)?$/i.test(name));
@@ -78,7 +79,7 @@ async function notices(ids) {
     if (!files.length) {
       const reviewed = metadataOnly[name];
       if (!reviewed || reviewed.license !== record.license || record.license !== 'MIT') { missing.push(name); continue; }
-      result.push(`Upstream npm package and pinned repository ${reviewed.gitHead} supply no standalone license file. Attribution from metadata: ${reviewed.attribution}. Repository: ${reviewed.repository}. The upstream README follows; standard MIT terms are reproduced without inventing an upstream copyright notice.`);
+      result.push(`The reviewed npm package supplies no standalone root license file. Its published source revision is ${reviewed.gitHead}. Attribution from package metadata or source headers: ${reviewed.attribution}. Repository: ${reviewed.repository}. The upstream README follows; standard MIT terms are reproduced without inventing an upstream copyright notice.`);
       result.push(await readFile(join(record.directory, 'README.md'), 'utf8'));
       result.push('MIT License\n\nPermission is hereby granted' + mit);
     }
@@ -117,8 +118,10 @@ export async function buildCandidate() {
     await writeFile(join(source, 'tsconfig.json'), JSON.stringify({ extends: join(root, 'tsconfig.json'), compilerOptions: { rootDir: './src', outDir: '../ts', sourceMap: false, declaration: false }, include: ['./src/**/*.ts'], exclude: ['**/*.test.ts'] }));
     await rm(join(output, 'ts'), { recursive: true, force: true });
     console.log(run(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', join(source, 'tsconfig.json')]));
+    const terminal = await bundle({ entryPoints: [join(source, 'src/extension/cafe-render.ts')], outfile: join(output, 'ts/extension/cafe-render.js'), bundle: true, format: 'esm', platform: 'node', target: 'node22', treeShaking: true, metafile: true, logLevel: 'warning' });
+    for (const input of Object.keys(terminal.metafile.inputs)) ids.add(resolve(input));
     await writeFile(join(output, 'THIRD-PARTY-NOTICES.txt'), await notices(ids));
-    const record = { format: 'pi-cafe-build-v1', ...identity, sha256: sha(await readFile(binary)), goVersion: run('go', ['version']).trim(), nodeVersion: process.version, binary: `bin/${tag}/${exe}`, tsDigest: await treeDigest(join(output, 'ts')), createdAt: new Date().toISOString() };
+    const record = { format: 'pi-cafe-build-v1', ...identity, sha256: sha(await readFile(binary)), goVersion: run('go', ['version']).trim(), goDigest: await treeDigest(join(root, 'relay')), nodeVersion: process.version, binary: `bin/${tag}/${exe}`, tsDigest: await treeDigest(join(output, 'ts')), createdAt: new Date().toISOString() };
     await writeFile(join(binDir, 'build.json'), JSON.stringify(record, null, 2));
     await writeFile(join(output, 'build.json'), JSON.stringify(record, null, 2)); console.log(JSON.stringify(record)); return record;
   } finally { await lock.close(); await rm(lockPath, { force: true }); }

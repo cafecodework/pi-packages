@@ -39,8 +39,9 @@ export interface RelayOptions {
     origin?: string;
     socketFactory?: (url: string) => SocketLike;
     now?: () => number;
+    connectTimeoutMs?: () => number;
 }
-function browserSocket(url: string): SocketLike {
+export function browserSocket(url: string): SocketLike {
     const ws = new WebSocket(url);
     const port: SocketLike = { get readyState() { return ws.readyState; }, get bufferedAmount() { return ws.bufferedAmount; }, onopen: null, onclose: null, onerror: null, onmessage: null, send: value => ws.send(value), close: () => { ws.onopen = null; ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.close(); } };
     ws.onopen = () => port.onopen?.();
@@ -54,6 +55,7 @@ export class RelayClient {
     readonly #url: string;
     readonly #factory: (url: string) => SocketLike;
     readonly #now: () => number;
+    readonly #connectTimeoutMs: () => number;
     #socket: SocketLike | null = null;
     #credentials: Credentials | null = null;
     #state: ConnectionState = { status: 'stopped', generation: 0, roomId: null };
@@ -71,6 +73,7 @@ export class RelayClient {
         this.#url = url.href;
         this.#factory = options.socketFactory ?? browserSocket;
         this.#now = options.now ?? Date.now;
+        this.#connectTimeoutMs = options.connectTimeoutMs ?? (() => 5000);
     }
     getState = (): ConnectionState => this.#state;
     subscribe = (listener: (event: RelayEvent) => void): (() => void) => { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; };
@@ -152,12 +155,16 @@ export class RelayClient {
         }
         this.#socket = socket;
         const current = () => this.#socket === socket && this.#state.generation === generation;
+        const requestedTimeout = this.#connectTimeoutMs();
+        const connectTimeout = Number.isFinite(requestedTimeout) ? Math.max(1, Math.min(30000, requestedTimeout)) : 5000;
         this.#helloTimer = setTimeout(() => { if (current())
-            this.#fail('CONNECTION_LOST'); }, 5000);
+            this.#fail('CONNECTION_LOST'); }, connectTimeout);
         socket.onopen = () => {
             if (!current() || !this.#credentials)
                 return;
             try {
+                clearTimeout(this.#helloTimer);
+                this.#helloTimer = setTimeout(() => { if (current()) this.#fail('CONNECTION_LOST'); }, 5000);
                 this.#set('authenticating');
                 const credentials = this.#credentials;
                 if (current() && credentials)

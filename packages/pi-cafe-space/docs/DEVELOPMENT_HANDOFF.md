@@ -2,16 +2,16 @@
 
 ## 当前实现与边界
 
-- 开发包：`packages/pi-cafe-space`；完整实现进度见 [PROGRESS §57](refactor/PROGRESS.md)，功能配置见 [MANAGED_SESSIONS](MANAGED_SESSIONS.md)。
+- 开发包：`packages/pi-cafe-space`。当前远程版入口见 [REMOTE_ACCESS](REMOTE_ACCESS.md) 和 [本轮验收](refactor/REMOTE_ACCEPTANCE.md)；[PROGRESS §57](refactor/PROGRESS.md) 保留此前本地版本的历史记录。
 - 当前方向是 **Go Relay + React / assistant-ui Web**，不是旧 `web/public` 客户端。Café 风格、严格 CSP、房间 Hash URL、原生消息/工具、`/` 命令、`@` 文件引用、左侧统一会话管理已经接入。
 - 左侧新建会话启动独立原生 Pi RPC，不切换现有客户端；后台实例支持关闭/重开，Pi 负责模型、工具和 JSONL，Relay 仅管理其自行创建的进程及登记。
-- **后台进程所有权目前仅支持 Windows**（Job Object）；其他平台尚未发行验收。不要将 Windows 本机通过等同于跨平台通过。
-- Windows 本机最近验收：TS 504、Web 101、Go 全部及管理器 race、37 项 Node guards；原生后台生命周期 5 组（1 次离线合成响应，0 真实 provider 请求），隔离浏览器布局与焦点通过。详见 PROGRESS，测试结果不是新机器已验收的承诺。
-- 外部 provider 成功验收仍未完成；此前首个请求 HTTP 403 后已停止。生产切换 R19、真实 provider 调用、自动修改全局 Pi 配置均不属于拉取后的默认操作。
+- 后台进程所有权已包含 Windows Job Object 与 macOS/Linux POSIX supervisor 实现。本轮在 macOS arm64 实测了两个原生 Pi 0.99.1 实例的独立创建、改名、关闭与重开；Linux/Windows 新远程版仍需在目标平台进行运行验收。交叉编译不等于运行验收。
+- 本轮 Mac 远程版：主 TS 504、Web 121、Go 全部及 remote/managed/service race 通过；真实 Chrome 多客户端、WebRTC 直连、权限/控制接管/撤销通过。主包使用包内 Vitest 4.1.11，不使用根目录旧版本。此前 Windows 的 Web 101、37 项 Node guards 等是历史记录，不冒充本轮结果。
+- 历史 PROGRESS 曾记录外部 provider 请求 HTTP 403 后停止。本轮未发送真实 provider 请求，也不将其他报告目录自动纳入本轮结论。生产切换 R19、真实 provider 调用、自动修改全局 Pi 配置均不属于拉取后的默认操作。
 
 ## 从干净仓库构建
 
-已使用的工具链：Node **22.23.2**、npm **11.16.0**、Go **1.24.2**。Windows 使用本机 Git/Node/Go，不把 WSL 工具链混入同一 Windows 工作树。新机器自行安装工具链；仓库不含原电脑 `.refactor/toolchains`。
+本轮 Mac 工具链：Node **24.0.2**、Go **1.26.2**、TypeScript **5.9.3**、包内 Vitest **4.1.11**、Vite **6.4.3**。历史 Windows 工具链为 Node **22.23.2**、npm **11.16.0**、Go **1.24.2**。Windows 使用本机 Git/Node/Go，不把 WSL 工具链混入同一 Windows 工作树。新机器自行安装工具链；仓库不含原电脑 `.refactor/toolchains`。
 
 ```sh
 # 仓库根目录：使用根 package-lock.json 安装整个 npm workspace
@@ -71,4 +71,4 @@ node --test --test-concurrency=1 scripts/refactor/*.test.mjs scripts/refactor/lo
 | 协议与测试向量 | `src/protocol/`、`relay/internal/protocol/`、`protocol/fixtures/` |
 | 候选发行与精确文件清单 | `scripts/refactor/build.mjs`、`release.mjs`、`pack.mjs` |
 
-尚未实现：后台跨平台 ownership、会话删除、未加载历史直接改名、跨会话草稿保留、`#` 输入能力。后台上限为 8 个运行实例 / 100 项登记，不自动淘汰；修改上限或删除语义前要保留幂等创建、原生持久化和进程所有权边界。
+尚未实现：会话删除、未加载历史直接改名、跨会话草稿保留、`#` 输入能力。远程版跨平台进程所有权已有实现，实际验收范围以 REMOTE_ACCEPTANCE 为准。后台上限为 8 个运行实例 / 100 项登记，不自动淘汰；修改上限或删除语义前要保留幂等创建、原生持久化和进程所有权边界。

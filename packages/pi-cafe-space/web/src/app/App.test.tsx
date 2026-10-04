@@ -13,7 +13,7 @@ describe('isolated Web shell', () => {
     const i18n = createI18n();
     render(<I18nextProvider i18n={i18n}><App createOwner={() => new AppOwner({ storage: createRelayStorage(() => { throw Error('isolated storage'); }), http: { config: async () => ({ protocolVersion: 1, wsPath: '/ws', defaultRoom: 'main' }) } })} /></I18nextProvider>);
     expect(screen.getByRole('heading', { name: 'Pi Cafe Space' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '连接你的 Pi 工作空间' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '连接你的 Pi 工作空间' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('未连接');
     expect(screen.getByRole('main')).toHaveClass(styles.shell!);
     fireEvent.click(screen.getByRole('button', { name: 'English' }));

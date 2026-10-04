@@ -20,7 +20,7 @@ export function ModelControls({ owner, readOnly, expanded = false }: { owner: Ap
   const run = async (payload: CommandPayload) => {
     if (!enabled || !scope || latch.current) return;
     latch.current = true; setBusy(true);
-    try { const result = await owner.gateway.execute(payload, scope); if (result.status === 'unknown' || result.status === 'rejected') owner.store.notice(result.code ?? 'COMMAND_ERROR'); }
+    try { const result = await owner.execute(payload, scope); if (result.status === 'unknown' || result.status === 'rejected') owner.store.notice(result.code ?? 'COMMAND_ERROR'); }
     finally { latch.current = false; if (active.current) setBusy(false); }
   };
   return <details className={styles.controls} open={expanded || undefined}><summary><Icon name="settings" />{t('modelSettings')}</summary>

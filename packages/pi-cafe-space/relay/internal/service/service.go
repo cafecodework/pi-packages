@@ -10,6 +10,7 @@ import (
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/httpserver"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/hub"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/managed"
+	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/remote"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/transport"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/webui"
 	"net"
@@ -24,6 +25,9 @@ type Options struct {
 	Assets    *webui.Assets
 }
 type Service struct {
+	local *localSetup
+	cloud *remote.Cloud
+	agent *remote.Agent
 	managed *managed.Manager
 	Hub     *hub.Hub
 	HTTP    *httpserver.Server
@@ -72,6 +76,17 @@ func (d *delayedSender) Close(code int, reason string) {
 	}
 }
 func New(cfg config.Config, options Options) (*Service, error) {
+	if cfg.CredentialsFile != "" { return newLocalSetup(cfg, options) }
+	var remoteConfig remote.Config
+	if cfg.RemoteConfig != "" {
+		var err error
+		remoteConfig, err = remote.Load(cfg.RemoteConfig)
+		if err != nil { return nil, err }
+		if remoteConfig.Mode == "cloud" && cfg.ManagedConfig != "" { return nil, errors.New("cloud mode cannot manage local Pi processes") }
+		ip := net.ParseIP(cfg.Host)
+		if remoteConfig.Mode == "device" && cfg.Host != "localhost" && (ip == nil || !ip.IsLoopback()) { return nil, errors.New("device mode requires a loopback listener") }
+	}
+	if cfg.ManagedRoomCredentials && (remoteConfig.Mode!="device" || remoteConfig.RoomIdentityFile=="" || !remoteConfig.RoomManagement) { return nil,errors.New("user-chosen managed credentials require an explicitly enabled office room") }
 	origins, err := auth.NewOrigins(cfg.AllowedOrigins)
 	if err != nil {
 		return nil, err
@@ -128,10 +143,35 @@ func New(cfg config.Config, options Options) (*Service, error) {
 		s.managed = manager
 		managerHandler = manager.Handler(cfg.ClientToken, origins)
 	}
-	s.HTTP = httpserver.NewServer(httpserver.NewManagedHandler(options.Assets, ws, managerHandler))
+	pageOrigin := ""
+	if remoteConfig.Mode=="cloud" { pageOrigin=remoteConfig.PublicOrigin }
+	handler := httpserver.NewManagedHandler(options.Assets, ws, managerHandler, pageOrigin)
+	if cfg.RemoteConfig != "" {
+		if remoteConfig.Mode == "cloud" {
+			s.cloud, err = remote.NewCloud(remoteConfig, cfg.RemoteConfig)
+			if err == nil { handler = s.cloud.Wrap(handler) }
+		} else {
+			backend := remote.AgentBackend{Hub: h, ClientToken: cfg.ClientToken, HostToken: cfg.HostToken}
+			if s.managed != nil { backend.Manager = s.managed }
+			s.agent, err = remote.NewAgent(remoteConfig, backend)
+			if err == nil { handler = s.agent.WrapRoomLocal(handler) }
+		}
+		if err != nil {
+			if s.managed != nil { s.managed.Close() }
+			h.Close(); cancel(); return nil, err
+		}
+	}
+	s.HTTP = httpserver.NewServer(handler)
 	return s, nil
 }
-func (s *Service) Serve(listener net.Listener) error { return s.HTTP.Serve(listener) }
+func (s *Service) Serve(listener net.Listener) error {
+	s.mu.Lock()
+	if s.closing { s.mu.Unlock(); return http.ErrServerClosed }
+	if s.cloud != nil { s.cloud.Start(s.ctx) }
+	if s.agent != nil { s.agent.Start(s.ctx) }
+	s.mu.Unlock()
+	return s.HTTP.Serve(listener)
+}
 func (s *Service) Close(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closing {
@@ -147,8 +187,18 @@ func (s *Service) Close(ctx context.Context) error {
 	s.closing = true
 	s.mu.Unlock()
 	defer close(s.done)
+	if s.local != nil {
+		s.cancel()
+		localErr := s.local.close(ctx)
+		httpErr := s.HTTP.Shutdown(ctx)
+		if httpErr != nil { _ = s.HTTP.Close() }
+		return errors.Join(localErr, httpErr)
+	}
+	if s.cloud != nil { s.cloud.Close() }
+	if s.agent != nil { s.agent.Close(); _ = s.agent.Wait(ctx) }
+	var managedErr error
 	if s.managed != nil {
-		s.managed.Close()
+		managedErr = s.managed.CloseContext(ctx)
 	}
 	s.Hub.Close()
 	s.cancel()
@@ -166,7 +216,7 @@ func (s *Service) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 	if errors.Is(err, http.ErrServerClosed) {
-		return nil
+		err = nil
 	}
-	return err
+	return errors.Join(err, managedErr)
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { listProjectDirectory, readProjectFile } from "./file-commands.js";
@@ -12,7 +12,7 @@ afterEach(async () => {
 
 describe("project file commands", () => {
   it("lists and reads files inside the project root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-collab-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "pi-collab-")));
     roots.push(root);
     await mkdir(join(root, "src"));
     await writeFile(join(root, "src", "index.ts"), "export const value = 1;\n");
@@ -26,7 +26,7 @@ describe("project file commands", () => {
   });
 
   it("rejects traversal and sensitive files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-collab-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "pi-collab-")));
     roots.push(root);
     await writeFile(join(root, ".env"), "SECRET=value\n");
     await writeFile(join(root, ".envsecret"), "SECRET=value\n");
@@ -60,7 +60,7 @@ describe("project file commands", () => {
   });
 
   it("bounds large directory listings and their serialized result", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-collab-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "pi-collab-")));
     roots.push(root);
     await Promise.all(Array.from({ length: 305 }, (_, index) => writeFile(join(root, `entry-${String(index).padStart(3, "0")}-${"x".repeat(170)}`), "")));
     const listing = await listProjectDirectory(root, ".") as { entries: unknown[]; truncated: boolean };
@@ -70,7 +70,7 @@ describe("project file commands", () => {
   });
 
   it("rejects a symlinked or junctioned project root", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "pi-collab-root-"));
+    const parent = await realpath(await mkdtemp(join(tmpdir(), "pi-collab-root-")));
     roots.push(parent);
     const root = join(parent, "root");
     const alias = join(parent, "alias");
@@ -87,7 +87,7 @@ describe("project file commands", () => {
   });
 
   it("bounds file offsets and rejects symlink traversal", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pi-collab-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "pi-collab-")));
     roots.push(root);
     await writeFile(join(root, "target.txt"), "safe\n");
     await writeFile(join(root, "utf8.txt"), "abc€");

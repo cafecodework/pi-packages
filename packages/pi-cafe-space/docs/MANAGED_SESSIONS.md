@@ -1,10 +1,12 @@
-# 独立后台会话（Go 候选 / Windows）
+# 独立后台会话（Go 候选 / 本机进程所有权）
+
+远程版已包含 Windows Job Object 与 macOS/Linux POSIX supervisor；本轮 macOS arm64 原生 Pi 0.99.1 生命周期验收见 [REMOTE_ACCEPTANCE](refactor/REMOTE_ACCEPTANCE.md)。Linux/Windows 新远程版仍需目标平台运行验收。网页连接、角色和控制权配置见 [REMOTE_ACCESS](REMOTE_ACCESS.md)。
 
 左侧 **新建** 创建新的后台 Pi，而不是向当前客户端发送 `new_session`。没有在线客户端、或原客户端正在工作时也可以创建。现有手动 Pi 的进程、会话和项目均不改变；新会话就绪并收到权威 snapshot 后，只有发起操作且仍在原视图的网页会选中它。
 
 ## 本机配置
 
-仅 Windows 已验收，使用 Node 22.23.2、原生 Pi 0.99.1。需使用支持 `--session-id`、`--offline`、`--no-approve` 的 Pi CLI；不提供对旧 CLI 的提示词降级。先建立专用管理目录，然后令 `PI_COLLAB_MANAGED_CONFIG` 指向本机 JSON 文件。通过 Go binary、候选 `run-relay.mjs` 或 `start-relay.ps1` 显式启动；普通扩展自动启动不会隐式启用管理器。
+以下 JSON 是历史 Windows 配置示例（Node 22.23.2、原生 Pi 0.99.1）；Mac/Linux 应使用自身的绝对可执行路径和显式 OS 环境。本轮 Mac 使用 Node 24.0.2 与原生 Pi 0.99.1，未使用真实 provider。需使用支持 `--session-id`、`--offline`、`--no-approve` 的 Pi CLI；不提供对旧 CLI 的提示词降级。先建立专用管理目录，然后令 `PI_COLLAB_MANAGED_CONFIG` 指向本机 JSON 文件。通过 Go binary、候选 `run-relay.mjs` 或 `start-relay.ps1` 显式启动；普通扩展自动启动不会隐式启用管理器。
 
 ```json
 {
@@ -40,6 +42,7 @@
 - 每个后台会话使用独立原生 RPC 进程、固定 UUID 和 `managed-<UUID>` host ID；不会接管手动 Pi 或附着其 JSONL。
 - `registry.json` 仅保存项目/房间/cwd、创建 ID、名称与进程状态元数据；原生会话存在 `stateDir/sessions/<projectId>/`。Relay 不生成、修改或重写 Pi JSONL。
 - Windows 文件锁保证同一登记目录只有一个 manager owner；不扫描 PID 接管进程，也不按旧 PID 结束进程。每个直接创建的进程树放进带 `KILL_ON_JOB_CLOSE` 的 Windows Job Object，Relay 崩溃时也回收其工具子进程。
+- macOS/Linux 使用专用 supervisor、存活管道与进程组，仅回收自身派生组；网关退出时由 supervisor 处理组内子进程。不按旧 PID 猜测所有权，主动脱离进程组的子进程不在此保证内。
 - **关闭实例** 要求确认，会停止该实例的任务与工具。先读原生状态保留名称、关闭 stdin，最多等待 8 秒后回收本管理器拥有的 Job；不会操作手动 Pi。
 - **打开** 恢复同一个原生 UUID，不自动继续中断的任务。Relay 重启后登记仍在，但所有后台项显示已关闭；不会自动重启或重放 prompt。
 - Pi 在首个用户/助手消息前不写会话文件。新建空会话的初始名称保存在登记中；正常关闭时保留 Pi 当前名称，重开只在 Pi 没有原生名称时恢复。崩溃前尚未产生任何对话的临时改名仍遵循 Pi 的未保存 setup 语义；已有对话的名称/内容由 Pi 原生保存。

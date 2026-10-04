@@ -4,6 +4,7 @@ package managed
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -79,6 +80,8 @@ type Manager struct {
 	active              map[string]*process
 	closing             bool
 	unlock              func()
+	closeOnce           sync.Once
+	closeDone           chan struct{}
 }
 
 func readJSON(path string, value any) error {
@@ -385,18 +388,13 @@ func (m *Manager) start(index int, fresh bool) error {
 		return err
 	}
 	cmd.Stderr = io.Discard
-	prepareProcess(cmd)
-	if err = cmd.Start(); err != nil {
-		stdin.Close()
-		return err
-	}
-	release, err := ownProcess(cmd)
+	release, err := startOwnedProcess(cmd)
 	if err != nil {
 		stdin.Close()
-		cmd.Process.Kill()
-		cmd.Wait()
+		stdout.Close()
 		return err
 	}
+	stdin = newBoundedInput(stdin, release)
 	p := &process{cmd: cmd, stdin: stdin, done: make(chan struct{}), release: release}
 	m.active[r.ID] = p
 	r.Status = "starting"
@@ -565,7 +563,22 @@ func (m *Manager) read(p *process, id string, stdout io.Reader) {
 	close(p.done)
 }
 func (m *Manager) Close() {
-	defer m.unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = m.CloseContext(ctx)
+}
+
+// Cancellation bounds the caller's wait. The registry remains locked until
+// cleanup has actually reaped our processes, not merely until a timer fires.
+func (m *Manager) CloseContext(ctx context.Context) error {
+	m.closeOnce.Do(func() {
+		m.closeDone = make(chan struct{})
+		go func() { defer close(m.closeDone); m.closeAll() }()
+	})
+	select { case <-m.closeDone: return nil; case <-ctx.Done(): return ctx.Err() }
+}
+func (m *Manager) closeAll() {
+	defer func() { if m.unlock != nil { m.unlock() } }()
 	m.mu.Lock()
 	m.closing = true
 	processes := []*process{}

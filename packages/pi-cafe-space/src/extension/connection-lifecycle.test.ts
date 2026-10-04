@@ -91,7 +91,7 @@ afterEach(async () => {
 });
 
 describe("Pi Cafe Space connection lifecycle", () => {
-  it("throttles real socket failures and resets only after a welcome", async () => {
+  it("throttles real socket failures across brief authenticated reconnects", async () => {
     const firstRelay = createRelayServer({
       host: "127.0.0.1",
       port: 0,
@@ -113,6 +113,7 @@ describe("Pi Cafe Space connection lifecycle", () => {
     });
 
     const notifications: Array<{ message: string; level: string }> = [];
+    const statuses: string[] = [];
     const handlers = new Map<string, Handler>();
     const pi = {
       registerFlag() {},
@@ -138,7 +139,7 @@ describe("Pi Cafe Space connection lifecycle", () => {
         getLeafId: () => null,
       },
       ui: {
-        setStatus() {},
+        setStatus(_key: string, text: string) { statuses.push(text); },
         notify(message: string, level: string) { notifications.push({ message, level }); },
       },
     } as unknown as ExtensionContext;
@@ -152,6 +153,7 @@ describe("Pi Cafe Space connection lifecycle", () => {
       roomId: "warning-lifecycle", token: "client-token",
     }));
     await waitForMessage(firstClient, (message) => message.type === "snapshot");
+    expect(statuses).toContain('café space: connected');
 
     // A malformed Pi callback must be contained and advertised as an
     // incomplete projection rather than escaping the event hook or silently
@@ -166,8 +168,8 @@ describe("Pi Cafe Space connection lifecycle", () => {
     // but they must remain one user-facing warning episode.
     firstClient.close();
     await firstRunning.close();
-    await wait(2_200);
-    const connectionWarningsAfterFirstFailure = notifications.filter((item) => item.level === "warning" && item.message.startsWith("relay connection"));
+    await wait(10_300);
+    const connectionWarningsAfterFirstFailure = notifications.filter((item) => item.level === "warning" && item.message.startsWith("Café Space: connection unavailable"));
     expect(connectionWarningsAfterFirstFailure).toHaveLength(1);
 
     const secondRelay = createRelayServer({
@@ -185,20 +187,22 @@ describe("Pi Cafe Space connection lifecycle", () => {
       type: "hello", protocolVersion: 1, peerRole: "client", peerId: "warning-lifecycle-client-2",
       roomId: "warning-lifecycle", token: "client-token",
     }));
-    await waitForMessage(secondClient, (message) => message.type === "snapshot");
+    await waitForMessage(secondClient, (message) => message.type === "snapshot", 12_000);
 
-    // The host's authenticated welcome resets the episode. A later real
-    // disconnect can therefore produce exactly one new warning.
+    // A brief welcome must not reset the warning cooldown or report recovery.
     secondClient.close();
     await secondRunning.close();
-    await wait(300);
-    const connectionWarningsAfterSecondFailure = notifications.filter((item) => item.level === "warning" && item.message.startsWith("relay connection"));
-    expect(connectionWarningsAfterSecondFailure).toHaveLength(2);
+    await wait(10_300);
+    expect(notifications.filter(item => item.level === 'info' && item.message.includes('connection is stable again'))).toHaveLength(0);
+    const connectionWarningsAfterSecondFailure = notifications.filter((item) => item.level === "warning" && item.message.startsWith("Café Space: connection unavailable"));
+    expect(connectionWarningsAfterSecondFailure).toHaveLength(1);
 
     await handlers.get("session_shutdown")?.();
     await wait(100);
-    expect(notifications.filter((item) => item.level === "warning" && item.message.startsWith("relay connection"))).toHaveLength(2);
-  }, 15_000);
+    expect(notifications.filter((item) => item.level === "warning" && item.message.startsWith("Café Space: connection unavailable"))).toHaveLength(1);
+    expect(statuses).toContain('café space: disconnected');
+    expect(statuses.every(value => value.startsWith('café space: '))).toBe(true);
+  }, 45_000);
 
   it("omits image bytes and tool-call placeholders from the visible text projection", async () => {
     const relay = createRelayServer({
@@ -282,5 +286,5 @@ describe("Pi Cafe Space connection lifecycle", () => {
     expect(snapshot.messages?.[0]?.text).not.toContain("[tool call:");
 
     await handlers.get("session_shutdown")?.();
-  }, 15_000);
+  }, 45_000);
 });

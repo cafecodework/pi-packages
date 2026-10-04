@@ -30,7 +30,8 @@ function boundedText(value: string) {
   return value.slice(0, end);
 }
 export function Composer({ scopeId, enabled, phase, readOnly = false, send, abort, context, navigation, inputAssist = false, readCompletions, localCommands = [] }: ComposerProps) {
-  const { t } = useTranslation(); const hintId = useId();
+  const { t, i18n } = useTranslation(); const hintId = useId();
+  const zh = i18n.language.startsWith('zh');
   const [draft, update] = useImmer(initial);
   const lifecycle = useRef(0);
   const currentScope = useRef(scopeId); currentScope.current = scopeId;
@@ -39,7 +40,12 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
     lifecycle.current++; sending.current = false; aborting.current = false; composing.current = false; update(initial());
     return () => { lifecycle.current++; };
   }, [scopeId, readOnly, update]);
-  const input = useRef<HTMLTextAreaElement>(null); const nextCursor = useRef<number | null>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const resize = () => { const node = input.current; if (!node) return; node.style.height = 'auto'; node.style.height = `${Math.min(160,Math.max(48,node.scrollHeight))}px`; };
+    resize(); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize);
+  }, [draft.text, scopeId]);
+  const nextCursor = useRef<number | null>(null);
   const [cursor, setCursor] = useState(0); const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false); const [active, setActive] = useState(0);
   const completions = useInputAssist({ text: draft.text, cursor, enabled: enabled && inputAssist && focused && !readOnly && !dismissed && !draft.sending, scopeId, read: readCompletions, localCommands });
@@ -88,7 +94,7 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
       {!completions.loading && !completions.error && !completions.items.length && <p role="status">{t('noCompletions')}</p>}
       {completions.truncated && <p>{t('completionTruncated')}</p>}
     </div>}
-    <FieldGroup className={styles.inputShell}><Field data-disabled={!enabled}><FieldLabel className="sr-only" htmlFor={`${hintId}-input`}>{t('message')}</FieldLabel><Textarea ref={input} id={`${hintId}-input`} aria-autocomplete="list" aria-haspopup="listbox" aria-controls={completions.target ? `${hintId}-completions` : undefined} aria-activedescendant={completions.target && completions.items.length ? `${hintId}-option-${selected}` : undefined} aria-label={t('message')} aria-describedby={hintId} placeholder={t('composerPlaceholder')} value={draft.text} maxLength={65536} disabled={!enabled} rows={3}
+    <FieldGroup className={styles.inputShell}><Field data-disabled={!enabled}><FieldLabel className="sr-only" htmlFor={`${hintId}-input`}>{t('message')}</FieldLabel><Textarea ref={input} id={`${hintId}-input`} aria-autocomplete="list" aria-haspopup="listbox" aria-controls={completions.target ? `${hintId}-completions` : undefined} aria-activedescendant={completions.target && completions.items.length ? `${hintId}-option-${selected}` : undefined} aria-label={t('message')} aria-describedby={hintId} placeholder={t('composerPlaceholder')} value={draft.text} maxLength={65536} disabled={!enabled} rows={1}
       onChange={event => { setCursor(event.target.selectionStart); update(d => { d.text = boundedText(event.target.value); }); }}
       onSelect={event => setCursor(event.currentTarget.selectionStart)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
@@ -104,7 +110,8 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
           }
           if (event.key === 'Enter' && completions.loading) { event.preventDefault(); return; }
         }
-        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void execute('send'); }
+        const touchInput = window.innerWidth < 768 || window.matchMedia?.('(pointer: coarse)').matches;
+        if (event.key === 'Enter' && !event.shiftKey && (!touchInput || event.ctrlKey || event.metaKey)) { event.preventDefault(); void execute('send'); }
       }} />
     </Field>
     <div className={styles.controls}>
@@ -112,16 +119,16 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
       {running && <ChoiceSelect label={t('delivery')} value={draft.delivery} disabled={!enabled || draft.sending}
         items={[{ value: '', label: t('chooseDelivery') }, { value: 'steer', label: t('steer') }, { value: 'followUp', label: t('followUp') }]}
         onValueChange={value => { if (value === '' || value === 'steer' || value === 'followUp') update(d => { d.delivery = value; }); }} />}
-      <div className={styles.actions}>{running && <Button variant="quiet" aria-label={t('abort')} loading={draft.aborting} disabled={!enabled || !running || draft.aborting} onClick={() => void execute('abort')}><Icon name="stop" />{t('abort')}</Button>}
-      <Button type="submit" variant="primary" aria-label={t('send')} loading={draft.sending} disabled={!canSend}><Icon name="send" />{t('send')}</Button></div>
+      <div className={styles.actions}>{running && <Button variant="quiet" aria-label={t('abort')} loading={draft.aborting} disabled={!enabled || !running || draft.aborting} onClick={() => void execute('abort')}><Icon name="stop" /><span className={styles.actionLabel}>{t('abort')}</span></Button>}
+      <Button type="submit" variant="primary" aria-label={t('send')} loading={draft.sending} disabled={!canSend}><Icon name="send" /><span className={styles.actionLabel}>{t('send')}</span></Button></div>
     </div></FieldGroup>
     <p id={hintId} className={styles.hint}>{t('composerHint')} · {t('inputAssistHint')}</p>
     {!inputAssist && (command || files.length > 0) && <p>{t('inputReloadHint')}</p>}
     {command && running && <p>{t('slashIdleHint')}</p>}
     {files.length > 0 && <p>{t('attachedFiles', { count: files.length })} {files.join(' · ')}</p>}
     {files.length > 8 && <p role="alert">{t('errors.TOO_MANY_FILES')}</p>}
-    {draft.result && <p role={draft.result.status === 'unknown' || draft.result.status === 'rejected' ? 'alert' : 'status'}>
-      {draft.result.status === 'unknown' ? t('unknownOutcome') : draft.result.status === 'rejected' ? t(`errors.${draft.result.code}`, { defaultValue: t('commandRejected') }) : draft.result.data && typeof draft.result.data === 'object' && !Array.isArray(draft.result.data) && draft.result.data.kind === 'local_action' ? t('localActionOpened') : t('commandDispatched')}
+    {draft.result && <p className={draft.result.status === 'unknown' || draft.result.status === 'rejected' ? undefined : 'sr-only'} role={draft.result.status === 'unknown' || draft.result.status === 'rejected' ? 'alert' : 'status'}>
+      {draft.result.code === 'CONTROL_APPROVAL_REQUIRED' ? (zh ? '任务未发送。请先申请控制权，房主批准后再点击发送；草稿已保留。' : 'Nothing was sent. Request control first, then press Send after the owner approves. Your draft is preserved.') : draft.result.code === 'CONTROL_BUSY' ? (zh ? '另一设备正在操作这个 Pi，未发送。草稿已保留。' : 'Another device controls this Pi. Nothing was sent; your draft is preserved.') : draft.result.code === 'CONTROL_UNCONFIRMED' ? (zh ? '尚未确认操作权，任务没有发送。请先查看协作状态，草稿已保留。' : 'Control was not confirmed. No task was sent; check the controller before retrying. Your draft is preserved.') : draft.result.status === 'unknown' ? t('unknownOutcome') : draft.result.status === 'rejected' ? t(`errors.${draft.result.code}`, { defaultValue: t('commandRejected') }) : draft.result.data && typeof draft.result.data === 'object' && !Array.isArray(draft.result.data) && draft.result.data.kind === 'local_action' ? t('localActionOpened') : (zh ? '已发送' : 'Sent')}
       {draft.result.code && <code> {draft.result.code}</code>}
     </p>}
   </form>;

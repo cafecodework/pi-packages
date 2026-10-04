@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/auth"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +17,29 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if code, handled := RunSupervisor(os.Args[1:]); handled { os.Exit(code) }
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--managed-test-leaf":
+			for { time.Sleep(time.Hour) }
+		case "--managed-test-tree":
+			child := exec.Command(os.Args[0], "--managed-test-leaf")
+			if child.Start() != nil { os.Exit(2) }
+			fmt.Printf("tree:%d:%d\n", os.Getpid(), child.Process.Pid)
+			_, _ = io.Copy(io.Discard, os.Stdin)
+			os.Exit(0)
+		case "--managed-test-owner":
+			child := exec.Command(os.Args[0], "--managed-test-tree")
+			child.Stdout, child.Stderr = os.Stdout, os.Stderr
+			input, err := child.StdinPipe()
+			if err != nil { os.Exit(2) }
+			release, err := startOwnedProcess(child)
+			if err != nil { os.Exit(2) }
+			defer release(); defer input.Close()
+			fmt.Printf("supervisor:%d\n", child.Process.Pid)
+			for { time.Sleep(time.Hour) }
+		}
+	}
 	if os.Getenv("CAFE_MANAGED_HELPER") == "1" {
 		id := ""
 		for i, a := range os.Args {
@@ -69,8 +94,8 @@ func awaitStatus(t *testing.T, m *Manager, id, status string) {
 	t.Fatalf("status %s not observed", status)
 }
 func TestOwnedLifecycle(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows process ownership")
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("unsupported process ownership platform")
 	}
 	m, path := fixture(t)
 	id := "13572468-1234-4123-8123-123456789abc"
@@ -125,8 +150,8 @@ func TestOwnedLifecycle(t *testing.T) {
 	awaitStatus(t, next, id, "stopped")
 }
 func TestAdmissionAndBounds(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows registry ownership")
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("unsupported registry ownership platform")
 	}
 	m, _ := fixture(t)
 	if _, code := m.Execute(Request{Room: "_invalid", Operation: "list"}); code != "INVALID_REQUEST" {

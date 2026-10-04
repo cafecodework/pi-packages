@@ -11,6 +11,7 @@ test('the final source build/prepack implementation works in an isolated source 
   const overlay=JSON.parse(await readFile(join(root,'scripts/refactor/candidate-overrides/extension-import.json'),'utf8'));
   const entry=join(copy,'src/extension/index.ts');const code=await readFile(entry,'utf8');assert.equal(code.split(overlay.from).length,2);await writeFile(entry,code.replace(overlay.from,overlay.to));
   for (const file of ['package.json','LICENSE']) await cp(join(target,file),join(copy,file));
+  await cp(join(root,'vitest.config.ts'),join(copy,'vitest.config.ts'));
   await cp(join(target,'scripts'),join(copy,'scripts'),{recursive:true});
   const base=JSON.parse(await readFile(join(root,'../../tsconfig.base.json'),'utf8')); const ts=JSON.parse(await readFile(join(root,'tsconfig.json'),'utf8'));
   await writeFile(join(copy,'tsconfig.json'),JSON.stringify({...ts,extends:undefined,compilerOptions:{...base.compilerOptions,...ts.compilerOptions}}));

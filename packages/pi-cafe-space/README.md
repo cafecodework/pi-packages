@@ -1,5 +1,7 @@
 # @cafecodework/pi-cafe-space
 
+> **多设备 / 多人远程版：** 查看 [远程接入指南](docs/REMOTE_ACCESS.md) 和 [本轮验收记录](docs/refactor/REMOTE_ACCEPTANCE.md)。源码包目录执行 `npm run remote:pack`；需要附带服务器和办公电脑二进制，可追加 `-- --platforms linux-amd64,windows-amd64`。新版本提供云端 Web/Relay、办公电脑网关、WebRTC/TURN、按实例控制权与受限后台管理。下方普通 Install/Local relay 说明保留旧版本兼容，不是新远程版的安装入口。
+
 > **换机器继续开发：先读 [开发交接说明](docs/DEVELOPMENT_HANDOFF.md)。** 当前 Go/React 候选使用 `npm run refactor:pack`；下方保留的普通 build/install 命令仍对应旧生产入口，不是新候选的构建方式。本机凭据、会话、构建产物和运行目录不随 Git 迁移。
 
 Pi Cafe Space 让电脑上的原生 Pi CLI 和手机或桌面浏览器通过 HTTP/WebSocket relay 参与同一个实时 Pi 会话。

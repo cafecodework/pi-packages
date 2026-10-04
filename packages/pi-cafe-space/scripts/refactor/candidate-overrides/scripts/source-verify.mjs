@@ -18,8 +18,8 @@ if(!source){
     run('go',['vet','./...'],join(root,'relay'));
   }else if(process.argv[2]==='test'){
     const vitest=join(dirname(require.resolve('vitest/package.json')),'vitest.mjs');
-    run(process.execPath,[vitest,'run','src','--exclude','web/**']);
-    run(process.execPath,[vitest,'run','--config','web/vitest.config.ts']);
+    run(process.execPath,[vitest,'run','--config','vitest.config.ts','--maxWorkers=2']);
+    run(process.execPath,[vitest,'run','--config','web/vitest.config.ts','--maxWorkers=2']);
     run('go',['test','./...'],join(root,'relay'));
   }else throw Error('Expected check or test');
 }

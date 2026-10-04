@@ -21,6 +21,7 @@ async function mount() {
   const owner = new AppOwner({ storage: createRelayStorage(() => { throw Error('isolated'); }), client: new RelayClient({ origin: 'http://localhost', socketFactory: () => { const socket = new Socket(); sockets.push(socket); return socket; } }), http: { config: async () => ({ protocolVersion: 1, wsPath: '/ws', defaultRoom: 'main' }) } });
   const i18n = createI18n(); await i18n.changeLanguage('en');
   const app = render(<I18nextProvider i18n={i18n}><App createOwner={() => owner} /></I18nextProvider>);
+  await screen.findByLabelText('Client token');
   const connect = async (empty = false, sessionControl = false) => {
     fireEvent.change(screen.getByLabelText('Client token'), { target: { value: 'synthetic-design-token' } });
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
@@ -34,11 +35,12 @@ async function mount() {
   };
   return { ...app, owner, sockets, connect };
 }
-it('rename requires a capable Pi; new never falls back to switching an existing client', async () => {
+it('current-session actions require capability and confirmation; independent instances stay separate', async () => {
   const legacy = await mount(); await legacy.connect();
   expect(screen.getByRole('button', { name: 'Rename current session' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'New session' }));
-  expect(screen.getByText(/This Relay has no background Pi configured/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'New session' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Start independent Pi instance' }));
+  expect(screen.getByText(/Independent instances are not enabled by the owner/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.getByText(/Run \/reload in the selected Pi/)).toBeInTheDocument();
@@ -46,10 +48,10 @@ it('rename requires a capable Pi; new never falls back to switching an existing 
   const app = await mount(); const socket = await app.connect(false, true);
   const input = screen.getByRole('textbox', { name: 'Message' });
   const header = screen.getByRole('banner', { name: 'Current session' });
-  expect(within(header).queryByRole('button', { name: 'New session' })).not.toBeInTheDocument();
+  expect(within(header).getByRole('button', { name: 'New session' })).toBeEnabled();
   expect(within(header).queryByRole('button', { name: 'Rename current session' })).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Client instances' })).toBeInTheDocument();
-  expect(within(screen.getByRole('complementary', { name: 'Pi hosts' })).getByRole('button', { name: 'New session' })).toBeEnabled();
+  expect(within(screen.getByRole('complementary', { name: 'Pi hosts' })).getByRole('button', { name: 'Start independent Pi instance' })).toBeEnabled();
   expect(within(screen.getByRole('complementary', { name: 'Pi hosts' })).getByRole('button', { name: 'Rename current session' })).toBeEnabled();
   fireEvent.change(input, { target: { value: 'draft survives cancelled switch' } });
   fireEvent.click(screen.getByRole('button', { name: 'New session' }));
@@ -65,7 +67,7 @@ it('rename requires a capable Pi; new never falls back to switching an existing 
   expect(request.expectedSessionId).toBe('session');
   await act(async () => socket.emit({ type: 'command_result', requestId: request.requestId, hostId: 'h1', status: 'applied', code: null, message: null }));
   expect(input).toHaveValue('draft survives cancelled switch');
-  fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start independent Pi instance' }));
   expect(screen.getByText(/without switching or interrupting existing clients/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
   expect(socket.frames.map(frame => JSON.parse(frame)).filter(m => m.payload?.name === 'new_session')).toHaveLength(0);

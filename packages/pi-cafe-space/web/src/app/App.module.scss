@@ -68,17 +68,46 @@
 .notices summary { cursor: pointer; }
 .notices ol { padding-left: 20px; }
 .routeError { margin: 32px; color: var(--cafe-danger); }
+.mobileUtilityButton, .mobileHostPicker { display: none; }
+.preferencesPanel { display: grid; gap: 20px; }
+.preferenceGroup { display: grid; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--cafe-line); }
+.preferenceGroup h3 { margin: 0; font-size: 12px; color: var(--cafe-muted); font-weight: 500; }
+.preferenceGroup .connection { margin: 0; }
+.preferenceOptions { display: flex; gap: 10px; }
+.preferenceOptions [aria-pressed='true'] { background: var(--cafe-surface-secondary); color: var(--cafe-accent); }
+.preferenceGroup button { min-height: 44px; justify-content: flex-start; }
+.hostChoice { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 72px; padding: 14px; text-align: left; border: 1px solid var(--cafe-line); background: var(--cafe-surface); }
+.hostChoice > span { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.hostChoice strong { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hostChoice small { font-size: 11px; color: var(--cafe-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hostChoice svg { flex-shrink: 0; }
 @media (max-width: 1100px) { .brand > span { display: none; } .header { gap: 12px; padding-inline: 16px; } .utilities { gap: 6px; } }
 @media (max-width: 767px) {
-  .header { flex-wrap: wrap; gap: 8px 12px; padding: 12px 16px; }
-  .brand h1 { font-size: 19px; }
-  .room { margin-left: auto; max-width: 9rem; font-size: 11px; }
-  .utilities { width: 100%; margin: 0; gap: 8px; order: 1; }
-  .connection { margin-left: auto; }
-  .logout { padding: 8px; font-size: 12px; }
-  .logout svg { display: none; }
-  .conversationHeader { padding: 8px 12px; gap: 8px; }
-  .loginStage { padding: 24px 16px; }
+  .shell { position: fixed; inset: var(--cafe-viewport-top,0px) 0 auto; height: var(--cafe-viewport-height,100dvh); min-height: 160px; }
+  .header { flex-wrap: nowrap; gap: 10px; padding: 6px 16px; min-height: 60px; }
+  .brand h1 { font-size: 21px; }
+  .room { display: none; }
+  .header .utilities { display: none; }
+  .mobileUtilityButton { display: inline-flex; margin-left: auto; min-width: 44px; min-height: 44px; }
+  .conversationHeader { padding: 3px 12px; min-height: 44px; gap: 8px; background: var(--cafe-page); }
+  .conversationHeader h2 { display: none; }
+  .conversationHeader button { min-height: 38px; padding-inline: 10px; font-size: 12px; }
+  .conversationMeta { margin: 0; flex-wrap: nowrap; gap: 8px; min-width: 0; }
+  .conversationMeta > span:first-child { flex: 1 1 0; max-width: 100%; font-size: 10px; }
+  .loginStage { display: block; padding: 20px 16px max(24px,env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+  .empty { margin: 0 auto; padding: 24px 20px; }
+  .placeholder { width: 100%; max-width: 480px; margin: auto; padding: 24px 16px; overflow: auto; }
+  .placeholder h2 { font: 500 20px/1.5 var(--cafe-sans); }
+  .mobileHostPicker { display: grid; gap: 10px; margin-top: 24px; }
+  .sidebar .host { min-height: 80px; padding: 12px; }
+  .host strong { font-size: 15px; }
+  .host small { font-size: 11px; }
+  .search input { height: 44px; font-size: 16px; }
+  .sessionHeading h2 { font-size: 20px; }
+  .notices { padding: 6px 14px; max-height: 22vh; font-size: 11px; }
+  .modelTrigger > span { max-width: 20ch; }
+  .preferencesPanel .connection { margin-left: 0; }
+  .preferencesPanel button { min-height: 44px; }
 }
 @media (max-height: 600px) and (min-width: 600px) {
   .header { flex-wrap: nowrap; min-height: 52px; padding-block: 6px; }
