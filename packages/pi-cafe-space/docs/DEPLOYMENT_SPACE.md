@@ -4,7 +4,43 @@
 
 使用既有服务器 `152.53.90.186`，SSH端口 `2012`、账户 `root`；域名为 `space.cafecode.work`，用户已在Cloudflare设置，服务器已有Caddy。要求用Docker部署云端Café Space，复用既有Caddy而不是覆盖其他站点。手机、笔记本希望同网、异地和蜂窝均可访问。密码不保存在此文档、源码或部署文件中。
 
-## 当前运行版本：咖啡风格手机界面与统一分享设置
+## 当前选择器更新：本机完成，云端切换受阻
+
+本机网关已切换到`~/.local/share/pi-cafe-space/0.1.0-custom-select-20261004`，思考强度恢复Café自定义菜单。实际JS`assets/index-_L3j_9_J.js`，CSS仍`assets/index-gezFmgl6.css`。只切换网页打包版本，扩展和协议运行文件与pi-owner版逐字节一致，Pi登记保持原pi-owner路径；models.json、settings.json、房间身份/密码/审批配置均未改。本次选择器更新只需刷新本机网页，不需要重新加载Pi。
+
+230项网页与类型检查、本机20组完整浏览器联动通过，含桌面鼠标/键盘、390/320触控、自定义菜单焦点与视口检查；详情见MOBILE_UX.md当前段。安装包`.refactor/release/pack-OjldLF/cafecodework-pi-cafe-space-0.1.0.tgz`，44文件，SHA`86c9bdce08b466c1fe69eee3cfa25977f9cd81d3088f679530a10a83099a56de`。Mac程序`2dc85a4f4dee619012e99953b56855b457ebfc4f65bff55c6f9ffbec1ba5c8d5`，Linux程序`05a62856cc4264d9517b6cd386c9febcd11e1e35ee63f469882954ba984bfa22`。本机旧启动文件备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-custom-select.plist`，新LaunchAgent SHA`3a84930b2cf04427a94fa4ebcaec40001798f5ad00228dc6396dd10c79351825`。
+
+**云端未切换。** 新Linux程序已上传并验证于`/opt/stacks/pi-cafe-space/releases/custom-select-20261004/pi-cafe-relay`；随后包含Docker构建和切换的工具调用被平台安全检查拦截，未执行，没有换通道重试。不要把已上传目录误认为已部署镜像。公共站点仍是下方pi-owner版本、JS为index-lZRNhiZP.js，Compose原摘要`e564aeaaaa08ecf6cdf6152e6188b5a8abc88b75b14f6e9ae926ed0aaedb3081`。本轮没有重启Caddy/TURN或修改cloud配置，没有公网新版本验收报告。
+
+用户补充要求提交并push；本次代码提交将覆盖同项目尚未提交的已验证访客身份、审批、模型反馈和自定义选择器工作，构建产物及本机配置不入库。最终提交与推送结果以Git记录和工具回执为准，不能从部署状态推断。
+
+## 前序运行版本／当前云端：Pi内审批与真实思考能力反馈
+
+本机网关、Pi登记及cloud已更新为`0.1.0-pi-owner-20261004`。Pi新申请简洁提示与/cafe approvals人工审批已补全，原host只读接口没有增权；新本机入口必须同时具备真实房主与Pi凭据且只作用于当前在线Pi。网页审批、撤销、默认关闭开关和昵称刷新逻辑保持。当前用户Pi需在空闲时/reload才能加载新扩展。
+
+Gemini切换问题已定位为实际cafeshop/gemini-3.8-flash配置reasoning:false，以及旧扩展不读回实际等级就返回成功。只把该模型reasoning改为true，其他模型/地址/密钥/默认等级不改；原生Pi模型加载器与setter、真实Responses序列化已验证，生成reasoning.effort=high但发送前停止，0外部模型请求。cafeshop上游是否执行该参数仍未实际调用验证。已有Pi依次/reload、/cafe models刷新当前同ID模型能力并保持原等级，再从网页选择支持档位。完整证据见[ROOM_CONTROL.md](ROOM_CONTROL.md)顶部。
+
+实际资产`assets/index-lZRNhiZP.js`、`assets/index-gezFmgl6.css`。安装目录`~/.local/share/pi-cafe-space/0.1.0-pi-owner-20261004`，新LaunchAgent SHA`52beaca23f92202b7e300afe346ffc3480305ad467f1d4346dd626992e522ed8`，旧文件`~/.local/share/pi-cafe-space/deploy-space-20261003/before-pi-owner.plist`。仅重载受管网关与cloud，没有结束手动Pi任务、改变房间身份/密码/审批选择或启用独立实例管理。
+
+cloud镜像`pi-cafe-space-cloud:0.1.0-pi-owner-20261004`，Compose SHA`e564aeaaaa08ecf6cdf6152e6188b5a8abc88b75b14f6e9ae926ed0aaedb3081`，回执`pi-owner-deployment.json`，回退`backups/before-pi-owner-20261004`。Caddy/TURN配置与启动时间保持。最终44文件包`pack-uU6K0H/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`8392ec23e4e02957a0aeecba4ada54aafc460481494858270176478012a16ceb`，新模块已精确列入发布白名单。
+
+557项主包、230项Web及类型检查、完整Go race/vet通过；本机20组浏览器与实际Node审批控制器联动通过（人工确认使用测试替身，无生产批准）。首次同步等待和打包清单失败有记录，完整公网终态见ROOM_CONTROL.md。没有commit/push或发布远端release。
+
+## 前序运行版本：访客申请弹窗与稳定昵称身份
+
+本机网关、Pi登记与cloud已更新为`0.1.0-visitor-ux-20261004`。发送受审批阻止时直接打开带申请按钮的弹窗，批准不自动发送草稿；登录可自定义昵称，显示昵称#ID，同浏览器刷新使用签名身份恢复5分钟窗口内已有批准。手机思考强度使用原生select，值以办公端快照为准；咖啡活动标记20px并与文字居中。完整行为、密码/过期边界和验收见[ROOM_CONTROL.md](ROOM_CONTROL.md)。
+
+**Pi内审批通知和/cafe内直接批准仍未交付**，先前受阻的接口改动未绕过；本机网页审批保持可用。独立实例管理也未启用，配置位置已补充至ROOMS.md，目前没有网页配置表单。
+
+实际资源`assets/index-b_rbHzxo.js`、CSS`assets/index-gezFmgl6.css`。本机版本目录`~/.local/share/pi-cafe-space/0.1.0-visitor-ux-20261004`；原身份/凭据/room-device/可选审批配置摘要不变，只重载受管网关和cloud，不结束用户手动Pi。旧启动文件备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-visitor-ux.plist`，新LaunchAgent SHA`dbd86ae28dc6f9579105f9589b7a44685a1b7333d6966256046e9694487a3a68`。
+
+cloud镜像`pi-cafe-space-cloud:0.1.0-visitor-ux-20261004`，Compose SHA`9aa330fce49460fd81a8299be8c15df17e95291d74c871d393717831faed52f7`，回执`visitor-ux-deployment.json`，备份`backups/before-visitor-ux-20261004`。Caddy/TURN配置和启动时间保持，cloud配置仍`a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`。
+
+228项Web/类型检查、完整Go remote/service race与vet、本机19组真实浏览器流程通过。最终公网包验收见ROOM_CONTROL.md当前段；图标实际几何测量20×20px、文字中心差0，但窗口视觉复核受设备锁定阻止，未改用其他抓屏路径，不冒称物理iPhone验收。
+
+最终41文件包`.refactor/release/pack-rYFXQA/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`73266e706ff43e272c919ea49346a749e37ece7815ca05e8782d5a0ba80dc7c6`；没有commit/push或远端release。刷新网页后第一次升级旧访客可能需重新批准一次；后续签名身份重连依文档恢复，密码不持久保存。无需重开Pi。
+
+## 前序运行版本：咖啡风格手机界面与统一分享设置
 
 本机网关、Pi登记与cloud已更新为`0.1.0-coffee-ui-20261004`。中文消息的段落/列表/代码块分开留白，输入聚焦使用圆角边框而非方形outline，活动图标为固定SVG咖啡杯与轻微蒸汽；不会在iPhone变成彩色emoji。分享和房间设置位于同一面板，路径为本机「分享房间 → 房间设置」，直接根路径缺失设置的情况已修复。原控制权默认关闭、本机人工批准、密码和连接协议保持。
 

@@ -1,3 +1,4 @@
+import { visitorIdentity, visitorProof, validNickname, type VisitorIdentity } from './visitorIdentity';
 import type { SocketLike } from '../relay/RelayClient';
 import type { RemoteInfo, RemoteRoute } from './RemoteSocket';
 import { ChunkDecoder, encodeChunks, MAX_BUSINESS_BYTES, PACKET_BYTES } from './framing';
@@ -9,6 +10,7 @@ import { roomHash, roomNonce, roomPasswordValid, validRoomKey, verifyRoomAnswer 
 export type RoomStage = 'signaling' | 'gathering' | 'waiting-office' | 'identity' | 'transport' | 'password' | 'synchronizing' | 'connected';
 export interface RoomProgress { stage: RoomStage; localRelay: boolean; remoteRelay: boolean; iceErrorCode: number | null; signalCloseCode: number | null; initialization?: RoomInitDiagnostic; transport?: RoomTransportDiagnostic; policy?: RoomConnectionPolicy }
 export interface RoomSocketOptions {
+  nickname?: string; onVisitor?: (name: string, persistent: boolean) => void;
   roomKey: string; password: string; origin?: string; connectionPolicy?: RoomConnectionPolicy;
   socketFactory?: (url: string) => WebSocket;
   peerFactory?: (configuration: RTCConfiguration) => RTCPeerConnection;
@@ -65,6 +67,7 @@ export class RoomSocket implements SocketLike {
       }
     }
   }
+  #profile: Promise<VisitorIdentity> | null = null; #proof: Awaited<ReturnType<typeof visitorProof>> | null = null; #persistent = false;
   #password: string; #id = ''; #offerHash = ''; #answerReceived = false;
   #pc: RTCPeerConnection | null = null; #dc: RTCDataChannel | null = null;
   #requested = false; #selected = false; #verified = false; #closed = false;
@@ -83,6 +86,7 @@ export class RoomSocket implements SocketLike {
       return value;
     });
     const { password, ...safe } = options; this.#options = safe; this.#password = password;
+    if(options.nickname !== undefined) { if(!validNickname(options.nickname))throw Error('INVALID_VISITOR_PROFILE'); this.#profile=visitorIdentity(options.roomKey); void this.#profile.catch(()=>{}); }
     this.#ws = roomInitializationStep('websocket', () => (options.socketFactory ?? (url => new WebSocket(url)))(origin.href));
     this.#timer = setTimeout(() => { this.#capture('timeout'); this.#fail('ROOM_CONNECTION_TIMEOUT'); }, 28000);
     this.#ws.onopen = () => { this.#report({ stage: 'signaling' }); try { this.#signal({ type: 'room_connect', roomKey: options.roomKey, nonce: this.#nonce }); } catch { this.#fail('ROOM_SIGNAL_UNAVAILABLE'); } };
@@ -119,11 +123,16 @@ export class RoomSocket implements SocketLike {
       if (!this.#requested || this.#selected || frame.mode !== 'webrtc' || this.#dc?.readyState !== 'open') throw Error('INVALID_ROOM_TRANSPORT');
       this.#selected = true;
       this.#report({ stage: 'password' });
-      this.#enqueue(JSON.stringify({ type: 'room.auth', id: this.#id, nonce: this.#nonce, password: this.#password }));
-      this.#password = ''; return;
+      void this.#authenticate().catch(() => this.#fail('ROOM_VISITOR_IDENTITY_FAILED')); return;
     }
     if (frame.type === 'signal_error') { this.#fail('ROOM_WEBRTC_UNAVAILABLE'); return; }
     throw Error('INVALID_ROOM_SIGNAL');
+  }
+  async #authenticate(): Promise<void> {
+    if(this.#profile){const profile=await this.#profile;this.#proof=await visitorProof(profile,this.#options.roomKey,this.#id,this.#nonce,this.#options.nickname!);this.#persistent=profile.persistent;}
+    if(this.#closed)return;
+    this.#enqueue(JSON.stringify({type:'room.auth',id:this.#id,nonce:this.#nonce,password:this.#password,...this.#proof?{nickname:this.#options.nickname,visitor:{publicKey:this.#proof.publicKey,signature:this.#proof.signature}}:{}}));
+    this.#password='';
   }
   async #answer(sdp: string, signature: string): Promise<void> {
     if (!await verifyRoomAnswer(this.#options.roomKey, signature, this.#id, this.#nonce, this.#offerHash, sdp)) throw Error('ROOM_IDENTITY_FAILED');
@@ -171,9 +180,11 @@ export class RoomSocket implements SocketLike {
     if (!object(value) || typeof value.type !== 'string') throw Error('INVALID_ROOM_DATA');
     if (!this.#verified) {
       if (value.type === 'room.denied') { this.#fail('ROOM_PASSWORD_REJECTED'); return; }
-      if (value.type !== 'room.authenticated' || value.id !== this.#id || value.roomKey !== this.#options.roomKey || value.deviceId !== 'room' || value.roomId !== 'main' || value.userId !== 'guest-' + this.#id || value.role !== 'operator' || typeof value.name !== 'string' || !value.name || value.name.length > 128 || typeof value.managed !== 'boolean') throw Error('INVALID_ROOM_IDENTITY');
+      if (value.type !== 'room.authenticated' || value.id !== this.#id || value.roomKey !== this.#options.roomKey || value.deviceId !== 'room' || value.roomId !== 'main' || value.userId !== (this.#proof?.userId ?? 'guest-' + this.#id) || value.role !== 'operator' || typeof value.name !== 'string' || !value.name || value.name.length > 128 || typeof value.managed !== 'boolean') throw Error('INVALID_ROOM_IDENTITY');
+      if(this.#proof && value.visitorName !== this.#proof.displayName) throw Error('INVALID_ROOM_IDENTITY');
       this.#verified = true; clearTimeout(this.#timer); this.#report({ stage: 'synchronizing' });
-      this.#options.onInfo?.({ id: this.#id, deviceId: 'room', roomId: 'main', userId: 'guest-' + this.#id, name: value.name, role: 'operator', managed: value.managed });
+      this.#options.onInfo?.({ id: this.#id, deviceId: 'room', roomId: 'main', userId: this.#proof?.userId ?? 'guest-' + this.#id, name: value.name, role: 'operator', managed: value.managed });
+      if(this.#proof)this.#options.onVisitor?.(this.#proof.displayName,this.#persistent);
       this.#options.onRoute?.('webrtc'); this.onopen?.(); void this.#route(); return;
     }
     if (value.type === 'remote.presence' || value.type === 'remote.result') this.#options.onAuxiliary?.(value);

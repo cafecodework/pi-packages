@@ -29,6 +29,7 @@ import WebSocket, { type RawData } from "ws";
 import { FileCommandError, listProjectDirectory, readProjectFile, attachProjectFiles } from "./file-commands.js";
 import { ConnectionWarningReporter } from "./connection-warning.js";
 import { registerCafe } from "./cafe.js";
+import { thinkingCapability, applyThinkingLevel } from './thinking-capability.js';
 import { ensureLocalRelay } from "./local-relay.js";
 import { localCredentialFile, readLocalHostToken } from "./local-relay.js";
 
@@ -466,7 +467,7 @@ function safeJsonWithStatus(value: unknown, max = 32_000): BoundedText {
 
 function modelRef(model: unknown): SessionSnapshot["model"] {
   if (!isRecord(model) || typeof model.provider !== "string" || typeof model.id !== "string" || !model.provider || !model.id) return null;
-  return { provider: boundedIdentifier(model.provider, 128), id: boundedIdentifier(model.id, 256) };
+  return { provider: boundedIdentifier(model.provider, 128), id: boundedIdentifier(model.id, 256), ...thinkingCapability(model) };
 }
 
 function roleForMessage(role: unknown): TranscriptMessage["role"] | null {
@@ -1654,11 +1655,15 @@ class PiCollabHost {
           if (this.stopped || this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
           this.sendCommandResult(command.relayRequestId, "dispatched", null, "Abort dispatched to Pi");
           return;
-        case "set_thinking":
-          this.pi.setThinkingLevel(payload.level);
+        case "set_thinking": {
+          const applied = applyThinkingLevel(this.pi, ctx.model, payload.level);
           if (this.stopped || this.rejectIfCommandStale(command, ctx, commandSessionId, commandCwd)) return;
-          this.sendCommandResult(command.relayRequestId, "applied", null, null);
+          // A native setter may clamp silently and emit no event. Read back
+          // the effective value, synchronize it, and never claim false success.
+          if (applied.actual !== null) this.onThinkingChanged(applied.actual, ctx);
+          this.sendCommandResult(command.relayRequestId, applied.code ? 'rejected' : 'applied', applied.code, applied.code ? 'The native Pi model did not accept this thinking level' : null);
           return;
+        }
         case "set_model": {
           const model = ctx.modelRegistry.find(payload.provider, payload.modelId);
           if (!model) {
@@ -2082,7 +2087,7 @@ class PiCollabHost {
     try {
       if (!this.adoptContext(ctx)) return;
       if (level === "off" || level === "minimal" || level === "low" || level === "medium" || level === "high" || level === "xhigh" || level === "max") {
-        this.emit({ kind: "thinking_changed", level });
+        if (this.snapshot.thinkingLevel !== level) this.emit({ kind: "thinking_changed", level });
       } else {
         this.recoverFromCallbackFailure();
       }
@@ -2188,6 +2193,7 @@ export default function registerPiCollabExtension(pi: ExtensionAPI): void {
   const cafe = registerCafe(pi, {
     config: () => configuration(pi),
     status: () => host?.status() ?? 'disabled',
+    modelsRefreshed: ctx => { if (ctx.model) host?.onModelChanged(ctx.model, ctx); host?.onThinkingChanged(pi.getThinkingLevel(), ctx); },
     connect: start,
     disconnect: () => { lifecycleGeneration++; startPromise = null; host?.stop(); host = null; },
   });

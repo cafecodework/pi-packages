@@ -149,10 +149,10 @@ export class AppOwner {
     if (!this.store.getSnapshot().hosts.has(id)) return;
     this.#desiredHost = id; this.storage.set('host', id); this.store.selectHost(id);
   }
-  connectRoomLink(roomKey: string, password: string, connectionPolicy: 'auto' | 'relay-tcp' = 'auto'): void {
+  connectRoomLink(roomKey: string, password: string, connectionPolicy: 'auto' | 'relay-tcp' = 'auto', nickname?: string): void {
     if (this.#disposed || !this.#initialized || !this.publicRoomMode) throw Error('CONFIG_UNAVAILABLE');
     this.client.stop(); this.remote.logout(); this.roomFailure = null; this.roomLastProgress = null; this.#roomHasConnected = false; this.#desiredHost = null;
-    this.remote.prepareRoomLink(roomKey, password, connectionPolicy);
+    this.remote.prepareRoomLink(roomKey, password, connectionPolicy, nickname);
     this.client.start({ token: 'room-session', roomId: 'main', peerId: this.storage.peerId() });
   }
   connectRemote(token: string, deviceId: string, roomId: string, mode: RemoteMode): void {

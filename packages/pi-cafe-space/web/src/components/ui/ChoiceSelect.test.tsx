@@ -1,8 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { ChoiceSelect } from './ChoiceSelect';
 import { UiProvider } from './UiProvider';
 
+it('native mode commits an actual selected value once without a floating portal',()=>{
+ const change=vi.fn();const {rerender}=render(<UiProvider><ChoiceSelect native label="Thinking" value="off" items={[{value:'off',label:'off'},{value:'high',label:'high'}]} onValueChange={change}/></UiProvider>);const input=screen.getByRole('combobox',{name:'Thinking'});expect(input.tagName).toBe('SELECT');fireEvent.change(input,{target:{value:'high'}});expect(change).toHaveBeenCalledExactlyOnceWith('high');expect(document.querySelector('[data-slot="select-content"]')).toBeNull();rerender(<UiProvider><ChoiceSelect native label="Thinking" value="high" disabled items={[{value:'high',label:'high'}]} onValueChange={change}/></UiProvider>);expect(input).toHaveValue('high');expect(input).toBeDisabled();
+});
 // Floating UI needs browser geometry. Open/select/keyboard/CSP and real Gateway
 // payload checks live in cafe-ui-browser.mjs --shadcn, not a JSDOM layout mock.
 it('renders an accessible shadcn trigger with empty selection and a disabled state', () => {

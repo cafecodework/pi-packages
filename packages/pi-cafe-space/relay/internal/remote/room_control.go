@@ -6,6 +6,7 @@ import (
  "os"
  "path/filepath"
  "sort"
+ "strings"
  "sync"
  "time"
 )
@@ -62,8 +63,13 @@ func(c *coordinator)RoomMode(room string)string{c.mu.Lock();defer c.mu.Unlock();
 func(c *coordinator)SetRoomPolicy(room string,enabled bool){
  c.mu.Lock();defer c.mu.Unlock();if value,exists:=c.roomPolicies[room];exists&&value==enabled{return}
  if c.roomPolicies==nil{c.roomPolicies=map[string]bool{}};c.roomPolicies[room]=enabled
- for key,lease:=range c.leases{if peer,ok:=c.peers[lease.Holder];ok&&peer.Room==room{delete(c.leases,key)}}
+ for key:=range c.leases{if strings.HasPrefix(key,room+"\x00"){delete(c.leases,key)}}
  for id,application:=range c.applications{if application.Room==room{delete(c.applications,id)}}
+}
+func(c *coordinator)ForgetRoomApprovals(room string){
+ c.mu.Lock();defer c.mu.Unlock()
+ for key:=range c.leases{if strings.HasPrefix(key,room+"\x00"){delete(c.leases,key)}}
+ for id,q:=range c.applications{if q.Room==room{delete(c.applications,id)}}
 }
 func(c *coordinator)finishApplicationLocked(id,state string){
  q,exists:=c.applications[id];if !exists{return};q.State=state;q.ExpiresAt=c.now().Add(controlRequestRetention).UnixMilli();c.applications[id]=q
@@ -97,7 +103,7 @@ func(c *coordinator)applicationsLocked(room,applicant string)[]ControlApplicatio
 }
 func(c *coordinator)LocalControl(room string)([]ControlApplication,[]Lease){
  c.mu.Lock();defer c.mu.Unlock();applications:=c.applicationsLocked(room,"");leases:=[]Lease{}
- for _,l:=range c.leases{if p,ok:=c.peers[l.Holder];ok&&p.Room==room&&l.ExpiresAt>c.now().UnixMilli(){leases=append(leases,l)}}
+ for key,l:=range c.leases{if strings.HasPrefix(key,room+"\x00")&&l.ExpiresAt>c.now().UnixMilli(){leases=append(leases,l)}}
  sort.Slice(leases,func(i,j int)bool{return leases[i].HostID<leases[j].HostID});return applications,leases
 }
 func(c *coordinator)Application(room,id string)(ControlApplication,bool){c.mu.Lock();defer c.mu.Unlock();q,ok:=c.applications[id];return q,ok&&q.Room==room}

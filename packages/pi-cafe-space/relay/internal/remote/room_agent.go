@@ -64,7 +64,7 @@ func(a *Agent)openRoomGuest(l *wsLink,f Frame,registeredKey string)error{
  go s.readPump();go s.writePump();return nil
 }
 func(s *remoteSession)roomAuthentication(raw []byte)error{
- var q struct{Type string `json:"type"`;ID string `json:"id"`;Nonce string `json:"nonce"`;Password string `json:"password"`}
+ var q struct{Type string `json:"type"`;ID string `json:"id"`;Nonce string `json:"nonce"`;Password string `json:"password"`;Nickname string `json:"nickname,omitempty"`;Visitor *visitorProof `json:"visitor,omitempty"`}
  if len(raw)>2048||strictJSON(raw,&q)!=nil||q.Type!="room.auth"||q.ID!=s.identity.ID||q.Nonce!=s.browserNonce{return errors.New("room authentication required")}
  s.mu.Lock();if s.closed||s.roomAttempted{s.mu.Unlock();return errors.New("one password attempt per connection")};s.roomAttempted=true;s.mu.Unlock()
  if !s.agent.room.verify(q.Password,s.roomKey,s.roomRevision){
@@ -72,25 +72,27 @@ func(s *remoteSession)roomAuthentication(raw []byte)error{
   time.AfterFunc(250*time.Millisecond,func(){s.Close(1008,"Room password rejected")});return nil
  }
  q.Password=""
+ identity,verifyErr:=verifiedRoomVisitor(s.identity,s.roomKey,s.browserNonce,q.Nickname,q.Visitor);if verifyErr!=nil{return verifyErr}
  connection,err:=s.agent.backend.Hub.Join(s,"room-guest:"+s.identity.ID);if err!=nil{return err}
- s.mu.Lock();if s.closed{s.mu.Unlock();s.agent.backend.Hub.Leave(connection);return errClosed};s.connection=connection;s.roomVerified=true;s.mu.Unlock()
- return s.sendJSON(map[string]any{"type":"room.authenticated","id":s.identity.ID,"roomKey":s.roomKey,"deviceId":"room","roomId":"main","userId":s.identity.UserID,"name":s.agent.cfg.DeviceName,"role":s.identity.Role,"managed":s.agent.cfg.RoomManagement&&s.agent.backend.Manager!=nil})
+ s.mu.Lock();if s.closed{s.mu.Unlock();s.agent.backend.Hub.Leave(connection);return errClosed};s.connection=connection;s.identity.UserID=identity.UserID;s.identity.Name=identity.Name;s.identity.Verified=identity.Verified;s.roomVerified=true;s.mu.Unlock()
+ return s.sendJSON(map[string]any{"type":"room.authenticated","id":s.identity.ID,"roomKey":s.roomKey,"deviceId":"room","roomId":"main","userId":s.identity.UserID,"visitorName":s.identity.Name,"name":s.agent.cfg.DeviceName,"role":s.identity.Role,"managed":s.agent.cfg.RoomManagement&&s.agent.backend.Manager!=nil})
 }
 func(a *Agent)invalidateRoom(){
  a.mu.Lock();link:=a.link;peers:=make([]*remoteSession,0,len(a.sessions));for _,s:=range a.sessions{peers=append(peers,s)};a.mu.Unlock()
- for _,s:=range peers{s.Close(1008,"Room access changed")};if link!=nil{link.Close()}
+ for _,s:=range peers{s.Close(1008,"Room access changed")};a.control.ForgetRoomApprovals("main");if link!=nil{link.Close()}
 }
 func(a *Agent)WrapRoomLocal(next http.Handler)http.Handler{
  if a.room==nil{return next}
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-  if r.URL.Path!="/api/room/share"&&r.URL.Path!="/api/room/control"&&r.URL.Path!="/api/room/terminal"&&r.URL.Path!="/api/config"{next.ServeHTTP(w,r);return}
+  if r.URL.Path!="/api/room/terminal-owner"&&r.URL.Path!="/api/room/share"&&r.URL.Path!="/api/room/control"&&r.URL.Path!="/api/room/terminal"&&r.URL.Path!="/api/config"{next.ServeHTTP(w,r);return}
   remoteHeaders(w)
   if r.URL.RawPath!=""||r.URL.RawQuery!=""||r.URL.EscapedPath()!=r.URL.Path{failHTTP(w,400,"INVALID_REQUEST");return}
   if r.URL.Path=="/api/room/terminal"{a.roomTerminal(w,r);return}
   if r.URL.Path=="/api/room/control"{a.roomOwnerControl(w,r);return}
+  if r.URL.Path=="/api/room/terminal-owner"{a.roomTerminalOwner(w,r);return}
   if r.URL.Path=="/api/config"{
    if r.Method!="GET"&&r.Method!="HEAD"{failHTTP(w,405,"METHOD_NOT_ALLOWED");return};if r.Method=="HEAD"{w.WriteHeader(200);return}
-   reply(w,200,map[string]any{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main","managedSessions":a.backend.Manager!=nil,"roomShare":true,"roomControl":true,"terminalShare":true});return
+   reply(w,200,map[string]any{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main","managedSessions":a.backend.Manager!=nil,"roomShare":true,"roomControl":true,"terminalShare":true,"terminalOwnerControl":true});return
   }
   if r.Method!="POST"{failHTTP(w,405,"METHOD_NOT_ALLOWED");return}
   peer,_,err:=net.SplitHostPort(r.RemoteAddr);ip:=net.ParseIP(peer);host,_,hostErr:=net.SplitHostPort(r.Host)

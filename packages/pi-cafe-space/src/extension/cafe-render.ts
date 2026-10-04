@@ -1,7 +1,7 @@
 import qrcode from 'qrcode-generator';
 import { matchesKey, isKeyRelease, wrapTextWithAnsi, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
-export type CafeAction = 'share' | 'copy' | 'open' | 'preview' | 'refresh' | 'connect' | 'disconnect' | 'back' | 'exit' | 'help';
+export type CafeAction = 'share' | 'copy' | 'open' | 'preview' | 'refresh' | 'connect' | 'disconnect' | 'back' | 'exit' | 'help' | 'approvals';
 export interface CafeView {
   title: string; subtitle: string; details: string[]; notice?: string; invitation?: string;
   items: { action: CafeAction; label: string }[]; sharing?: boolean;
@@ -57,7 +57,7 @@ export class CafePanel {
     if (matchesKey(data, 'up') || data === 'k') this.#selected = (this.#selected + this.view.items.length - 1) % this.view.items.length;
     else if (matchesKey(data, 'down') || data === 'j' || matchesKey(data, 'tab')) this.#selected = (this.#selected + 1) % this.view.items.length;
     else if (matchesKey(data, 'enter')) { const item = this.view.items[this.#selected]; if (item) this.finish(item.action); return; }
-    else { const action = data.toLowerCase() === 'p' ? 'preview' : data.toLowerCase() === 'c' ? 'copy' : data.toLowerCase() === 'b' ? 'open' : data.toLowerCase() === 'r' ? 'refresh' : null; if (action && this.view.items.some(i => i.action === action)) this.finish(action); return; }
+    else { const action = data.toLowerCase() === 'a' ? 'approvals' : data.toLowerCase() === 'p' ? 'preview' : data.toLowerCase() === 'c' ? 'copy' : data.toLowerCase() === 'b' ? 'open' : data.toLowerCase() === 'r' ? 'refresh' : null; if (action && this.view.items.some(i => i.action === action)) this.finish(action); return; }
     this.redraw();
   }
   private finish(action: CafeAction): void { if (!this.#closed) { this.#closed = true; this.done(action); } }

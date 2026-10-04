@@ -81,6 +81,10 @@ it('scope changes clear drafts and old acknowledgements cannot overwrite a new d
   await act(async () => settle(applied));
   expect(screen.getByRole('textbox')).toHaveValue('new');
 });
+it('approval denial opens the request dialog and keeps the unsent draft',async()=>{
+ const onApprovalRequired=vi.fn();const send=vi.fn(async():Promise<GatewayResult>=>({status:'rejected',code:'CONTROL_APPROVAL_REQUIRED',message:null}));
+ render(<Composer scopeId="a" enabled phase="idle" send={send} abort={send} onApprovalRequired={onApprovalRequired}/>,{wrapper});const input=screen.getByRole('textbox');fireEvent.change(input,{target:{value:'preserve my draft'}});await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Send'})));expect(onApprovalRequired).toHaveBeenCalledExactlyOnceWith(input);expect(input).toHaveValue('preserve my draft');expect(send).toHaveBeenCalledOnce();
+});
 it('unknown write outcomes keep the draft and warn honestly without replay', async () => {
   const send = vi.fn(async (): Promise<GatewayResult> => ({ status: 'unknown', code: 'RESULT_UNKNOWN', message: 'TIMEOUT' }));
   render(<Composer scopeId="a" enabled phase="idle" send={send} abort={vi.fn(async () => applied)} />, { wrapper });

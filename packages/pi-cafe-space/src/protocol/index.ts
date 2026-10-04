@@ -31,6 +31,9 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 export interface ModelRef {
   provider: string;
   id: string;
+  /** Declared by the native Pi model, not inferred by the browser. */
+  reasoning?: boolean;
+  thinkingLevels?: ThinkingLevel[];
 }
 
 export type TranscriptPart =
@@ -495,7 +498,9 @@ export function hasSufficientTokenEntropy(value: string): boolean {
 }
 
 function isModelRef(value: unknown): value is ModelRef | null {
-  return value === null || (isRecord(value) && isString(value.provider, 128) && isString(value.id, 256));
+  return value === null || (isRecord(value) && isString(value.provider, 128) && isString(value.id, 256) &&
+    (value.reasoning === undefined || typeof value.reasoning === 'boolean') &&
+    (value.thinkingLevels === undefined || Array.isArray(value.thinkingLevels) && value.thinkingLevels.length > 0 && value.thinkingLevels.length <= 7 && value.thinkingLevels.every(isThinkingLevel) && new Set(value.thinkingLevels).size === value.thinkingLevels.length && (value.reasoning !== false || value.thinkingLevels.every(level => level === 'off'))));
 }
 
 function isHostInfo(value: unknown): value is HostInfo {
@@ -768,7 +773,7 @@ function boundedToolExecution(tool: ToolExecution): { value: ToolExecution; trun
 }
 
 function canonicalModel(model: ModelRef | null): ModelRef | null {
-  return model ? { provider: model.provider, id: model.id } : null;
+  return model ? { provider: model.provider, id: model.id, ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}), ...(model.thinkingLevels !== undefined ? { thinkingLevels: [...model.thinkingLevels] } : {}) } : null;
 }
 
 export function canonicalCommandPayload(payload: CommandPayload): CommandPayload {

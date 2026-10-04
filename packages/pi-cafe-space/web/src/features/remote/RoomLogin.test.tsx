@@ -19,6 +19,7 @@ it('compatibility mode is an explicit user choice passed to the room connection'
  const connect=vi.spyOn(owner,'connectRoomLink').mockImplementation(()=>{});const i18n=createI18n();await i18n.changeLanguage('en');
  const key='B'+'A'.repeat(86);render(<I18nextProvider i18n={i18n}><RoomLogin owner={owner} roomKey={key}/></I18nextProvider>);
  const choice=screen.getByRole('checkbox',{name:'Compatibility connection (relay only)'});expect(choice).not.toBeChecked();
+ fireEvent.change(screen.getByLabelText('Your nickname',{exact:true}),{target:{value:'拿铁'}});
  fireEvent.click(choice);expect(choice).toBeChecked();fireEvent.change(screen.getByLabelText('Room password',{exact:true}),{target:{value:'Synthetic42'}});fireEvent.click(screen.getByRole('button',{name:'Join room'}));
- expect(connect).toHaveBeenCalledExactlyOnceWith(key,'Synthetic42','relay-tcp');expect(screen.getByLabelText('Room password',{exact:true})).toHaveValue('');expect(document.body.textContent).not.toContain('Synthetic42');
+ expect(connect).toHaveBeenCalledExactlyOnceWith(key,'Synthetic42','relay-tcp','拿铁');expect(screen.getByLabelText('Room password',{exact:true})).toHaveValue('');expect(document.body.textContent).not.toContain('Synthetic42');
 });

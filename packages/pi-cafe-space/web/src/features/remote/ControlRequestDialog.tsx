@@ -15,7 +15,7 @@ export function ControlRequestDialog({owner,hostId,hostLabel,available,restoreFo
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  const application=remote.controlRequests?.find(q=>q.hostId===hostId);
  const granted=owner.remote.canWrite(hostId),ready=available&&remote.phase==='ready'&&!!remote.info;
- const disabled=remote.controlPolicy==='disabled',pending=application?.state==='pending',waiting=pending||(sent&&!application);
+ const disabled=remote.controlPolicy==='disabled',pending=application?.state==='pending',waiting=pending||sent;
  useEffect(()=>{if(application){setSent(false);setError('');}},[application?.id,application?.state]);
  const request=async(cancel=false)=>{
   if(latch.current||!ready||remote.info?.role==='viewer'||remote.controlPolicy!=='approval'||granted||(!cancel&&(waiting||error==='RESULT_UNKNOWN'))||cancel&&!pending)return;

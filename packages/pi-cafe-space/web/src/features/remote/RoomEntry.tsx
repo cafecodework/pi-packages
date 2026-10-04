@@ -1,3 +1,4 @@
+import { savedNickname, validNickname } from '../../services/remote/visitorIdentity';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { RoomStage } from '../../services/remote/RoomSocket';
 import { roomDiagnosticReport } from '../../services/remote/roomDiagnosticReport';
@@ -31,6 +32,8 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
   const { i18n } = useTranslation(); const zh = i18n.language.startsWith('zh');
   const connection = useCollabStore(owner.store, state => state.connection.status);
   const [password, setPassword] = useState(''); const [show, setShow] = useState(false); const [error, setError] = useState('');
+  const [nickname, setNickname] = useState(() => savedNickname(roomKey));
+  useEffect(() => { setNickname(savedNickname(roomKey)); }, [roomKey]);
   const [compatible, setCompatible] = useState(false);
   const [copyState, setCopyState] = useState<'idle'|'copying'|'copied'|'fallback'>('idle');
   const [copyFallback, setCopyFallback] = useState('');
@@ -41,6 +44,8 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
   useEffect(() => { if (!busy) return; setElapsed(0); const started = Date.now(); const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000); return () => clearInterval(timer); }, [busy]);
   const phases: Record<RoomStage,string> = zh ? { signaling:'连接信令服务',gathering:'检测直连和中继地址','waiting-office':'等待办公电脑应答',identity:'验证房间身份',transport:'建立加密连接',password:'验证房间密码',synchronizing:'同步 Pi 实例',connected:'已连接' } : { signaling:'Connecting to signaling',gathering:'Finding direct and relay routes','waiting-office':'Waiting for the office endpoint',identity:'Verifying room identity',transport:'Establishing encrypted connection',password:'Checking room password',synchronizing:'Synchronizing Pi instances',connected:'Connected' };
   const errors: Record<string, string> = zh ? {
+    INVALID_VISITOR_PROFILE: '昵称应为1–24个字符，不含#或控制字符。',
+    ROOM_VISITOR_IDENTITY_FAILED: '无法验证本浏览器的访客身份，请重新连接；没有恢复任何授权。',
     ROOM_BROWSER_UNSUPPORTED: '当前浏览器缺少必要的 WebRTC 或安全加密能力。请在系统 Safari 或 Chrome 中打开此链接。',
     ROOM_SIGNAL_START_FAILED: '信令连接在创建时失败。下方显示具体初始化步骤；尚未验证密码。',
     ROOM_SIGNAL_POLICY_DENIED: '浏览器报告安全限制，阻止了信令连接。请先刷新此页面；不要关闭浏览器安全保护或重置密码。',
@@ -67,6 +72,8 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
     ROOM_WEBRTC_UNAVAILABLE: '无法建立 WebRTC 连接，请检查当前网络或稍后重试。',
     ROOM_CONNECTION_TIMEOUT: '连接超时，请确认办公电脑在线，或更换网络重试。',
   } : {
+    INVALID_VISITOR_PROFILE: 'Use a nickname of 1–24 characters without # or control characters.',
+    ROOM_VISITOR_IDENTITY_FAILED: 'Could not verify this browser’s visitor identity. Reconnect; no grant was restored.',
     ROOM_BROWSER_UNSUPPORTED: 'This browser lacks required WebRTC or secure cryptography support. Open the link in Safari or Chrome.',
     ROOM_SIGNAL_START_FAILED: 'Signaling failed during construction. The initialization step is shown below; the password has not been checked.',
     ROOM_SIGNAL_POLICY_DENIED: 'The browser reported a security restriction while creating signaling. Reload this page; do not disable browser security or reset the password.',
@@ -106,10 +113,12 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
     <p className={styles.eyebrow}>{zh ? '私人房间' : 'PRIVATE ROOM'}</p><h2 className={styles.title} id="room-password-title">{zh ? '输入房间密码' : 'Enter room password'}</h2>
     <form className={styles.form} onSubmit={event => {
       event.preventDefault(); if (busy) return;
+      if (!validNickname(nickname.trim())) { setError('INVALID_VISITOR_PROFILE'); return; }
       if (!roomPasswordValid(password)) { setError('INVALID_ROOM_CREDENTIALS'); return; }
-      setError(''); setCopyState('idle'); setCopyFallback(''); try { owner.connectRoomLink(roomKey, password, compatible ? 'relay-tcp' : 'auto'); setPassword(''); } catch { setError('INVALID_ROOM_CREDENTIALS'); }
+      setError(''); setCopyState('idle'); setCopyFallback(''); try { owner.connectRoomLink(roomKey, password, compatible ? 'relay-tcp' : 'auto', nickname.trim()); setPassword(''); } catch { setError('INVALID_ROOM_CREDENTIALS'); }
     }}>
       <p className={styles.intro}>{zh ? '连接办公电脑上的 Pi。' : 'Connect to Pi on your office computer.'}</p>
+      <div className={styles.field}><Label htmlFor="room-nickname">{zh ? '你的昵称' : 'Your nickname'}</Label><Input id="room-nickname" className={styles.input} value={nickname} maxLength={48} required disabled={busy} autoComplete="nickname" onChange={event => setNickname(event.target.value)} placeholder={zh ? '例如：拿铁' : 'For example: Latte'} /><small>{zh ? '进入后显示为 昵称#ID。同一浏览器刷新保留身份；不会保存房间密码。' : 'Shown as nickname#ID. This browser keeps its identity across reloads; the room password is not saved.'}</small></div>
       <div className={styles.field}><Label htmlFor="room-password">{zh ? '房间密码' : 'Room password'}</Label><div className={styles.inputWrap}>
         <Input id="room-password" className={styles.input} type={show ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" spellCheck={false} value={password} minLength={6} maxLength={20} required disabled={busy} onChange={event => setPassword(event.target.value)} placeholder={zh ? '6–20 位房间密码' : '6–20 characters'} />
         <Button className={styles.visibility} variant="quiet" disabled={busy} aria-label={zh ? (show ? '隐藏密码' : '显示密码') : (show ? 'Hide password' : 'Show password')} aria-pressed={show} onClick={() => setShow(value => !value)}>{zh ? (show ? '隐藏' : '显示') : (show ? 'Hide' : 'Show')}</Button>

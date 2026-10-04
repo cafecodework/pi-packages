@@ -53,7 +53,12 @@ func model(v any) bool {
 		return true
 	}
 	o, ok := v.(Object)
-	return ok && text(o["provider"], 128, false) && text(o["id"], 256, false)
+	if !ok || !text(o["provider"], 128, false) || !text(o["id"], 256, false) || !optional(o,"reasoning",boolean) { return false }
+	if raw, exists := o["thinkingLevels"]; exists {
+		levels, valid := raw.([]any); if !valid || len(levels)==0 || len(levels)>7 { return false }
+		seen:=map[string]bool{}; for _,level:=range levels { if !thinking(level) { return false }; s:=level.(string); if seen[s] || o["reasoning"]==false && s!="off" { return false }; seen[s]=true }
+	}
+	return true
 }
 func hasModel(o Object, k string) bool { v, ok := o[k]; return ok && model(v) }
 func selectFields(o Object, keys ...string) Object {
@@ -69,7 +74,7 @@ func canonicalModel(v any) any {
 	if v == nil {
 		return nil
 	}
-	return selectFields(v.(Object), "provider", "id")
+	return selectFields(v.(Object), "provider", "id", "reasoning", "thinkingLevels")
 }
 func validParts(v any) bool {
 	a, ok := v.([]any)

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { savedNickname, rememberNickname, validNickname } from './visitorIdentity';
 import { nanoid } from 'nanoid';
 import { RoomSocket, type RoomProgress } from './RoomSocket';
 import { roomInitializationFailure } from './roomInitialization';
@@ -17,11 +18,12 @@ export interface RemoteState {
   deviceId:string|null; deviceName:string|null; mode:RemoteMode; route:RemoteRoute|null;
   info:RemoteInfo|null; members:Member[]; leases:ControlLease[]; error:string|null;
   roomProgress?:RoomProgress|null;
+  visitorName?:string|null; visitorPersistent?:boolean;
   controlPolicy?:RoomControlPolicy|null; controlRequests?:ControlApplication[];
 }
 type ActiveSocket = RemoteSocket | RoomSocket;
 interface Pending { socket:ActiveSocket; write:boolean; resolve:(value:unknown)=>void; reject:(error:Error)=>void; timer:ReturnType<typeof setTimeout>; cleanup:()=>void }
-interface Selection { token:string;deviceId:string;roomId:string;mode:RemoteMode;roomKey?:string;password?:string;connectionPolicy?:RoomConnectionPolicy }
+interface Selection { token:string;deviceId:string;roomId:string;mode:RemoteMode;roomKey?:string;password?:string;nickname?:string;connectionPolicy?:RoomConnectionPolicy }
 interface Options { discover?:(token:string,signal?:AbortSignal)=>Promise<unknown>; socketOptions?:Pick<RemoteSocketOptions,'origin'|'socketFactory'|'peerFactory'> }
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(v);
@@ -75,10 +77,10 @@ export class RemoteAccess {
   #update(change:Partial<RemoteState>):void{if(this.#disposed)return;this.#state={...this.#state,...change};for(const fn of this.#listeners)fn();}
   get enabled():boolean{return this.#state.enabled;}
   get roomKey():string|null{return this.#selection?.roomKey??null;}
-  prepareRoomLink(roomKey:string,password:string,connectionPolicy:RoomConnectionPolicy='auto'):void{
+  prepareRoomLink(roomKey:string,password:string,connectionPolicy:RoomConnectionPolicy='auto',nickname=savedNickname(roomKey)):void{
     if(connectionPolicy!=='auto'&&connectionPolicy!=='relay-tcp')throw Error('INVALID_ROOM_TRANSPORT_POLICY');
-    if(!this.enabled||!validRoomKey(roomKey)||!roomPasswordValid(password))throw Error('INVALID_ROOM_CREDENTIALS');
-    this.#selection={token:'room-session',deviceId:'room',roomId:'main',mode:'webrtc',roomKey,password,connectionPolicy};
+    if(!this.enabled||!validRoomKey(roomKey)||!roomPasswordValid(password)||!validNickname(nickname))throw Error('INVALID_ROOM_CREDENTIALS');
+    this.#selection={token:'room-session',deviceId:'room',roomId:'main',mode:'webrtc',roomKey,password,connectionPolicy,nickname};rememberNickname(roomKey,nickname);
     this.#update({deviceId:'room',deviceName:'Café Space',mode:'webrtc',error:null,roomProgress:{stage:'signaling',localRelay:false,remoteRelay:false,iceErrorCode:null,signalCloseCode:null}});
   }
   enable(enabled:boolean):void{this.#update({enabled});}
@@ -105,6 +107,7 @@ export class RemoteAccess {
     this.#socket?.close();this.#update({phase:'connecting',route:null,info:null,members:[],leases:[],controlPolicy:null,controlRequests:[],error:null});
     let socket:ActiveSocket;
     const callbacks={
+      onVisitor:(visitorName:string,visitorPersistent:boolean)=>{if(this.#socket===socket)this.#update({visitorName,visitorPersistent});},
       onProgress:(roomProgress:RoomProgress)=>{if(this.#socket===socket)this.#update({roomProgress});},
       onInfo:(info:RemoteInfo)=>{if(this.#socket===socket)this.#update({info,...selected.roomKey?{deviceName:info.name}:{}});},
       onRoute:(route:RemoteRoute)=>{if(this.#socket===socket)this.#update({route});},
@@ -112,7 +115,7 @@ export class RemoteAccess {
       onEnd:(code:string)=>{if(this.#socket!==socket)return;this.#socket=null;this.#settleAll();clearInterval(this.#renew);this.#renew=undefined;this.#update({phase:'disconnected',info:null,members:[],leases:[],controlPolicy:null,controlRequests:[],route:null,error:code==='CLOSED'?null:code});},
     };
     try {
-      socket=selected.roomKey ? new RoomSocket({roomKey:selected.roomKey,password:selected.password!,connectionPolicy:selected.connectionPolicy,...this.#options.socketOptions,...callbacks}) : new RemoteSocket({...selected,...this.#options.socketOptions,...callbacks});
+      socket=selected.roomKey ? new RoomSocket({roomKey:selected.roomKey,password:selected.password!,nickname:selected.nickname,connectionPolicy:selected.connectionPolicy,...this.#options.socketOptions,...callbacks}) : new RemoteSocket({...selected,...this.#options.socketOptions,...callbacks});
     } catch(error) {
       if(selected.roomKey){const {code,diagnostic}=roomInitializationFailure(error);this.#socket=null;this.#update({phase:'disconnected',error:code,roomProgress:{stage:'signaling',localRelay:false,remoteRelay:false,iceErrorCode:null,signalCloseCode:null,initialization:diagnostic}});throw Error(code);}
       throw error;
@@ -209,7 +212,7 @@ export class RemoteAccess {
   #settleAll():void{for(const p of this.#pending.values()){clearTimeout(p.timer);p.cleanup();p.reject(Error(p.write?'RESULT_UNKNOWN':'CONNECTION_LOST'));}this.#pending.clear();}
   logout():void{
     this.#socket?.close();this.#socket=null;this.#selection=null;this.#catalog=null;this.#catalogToken='';this.#discovery++;clearInterval(this.#renew);this.#renew=undefined;this.#settleAll();
-    this.#update({phase:'idle',deviceId:null,deviceName:null,route:null,info:null,members:[],leases:[],controlPolicy:null,controlRequests:[],error:null,roomProgress:null});
+    this.#update({phase:'idle',visitorName:null,visitorPersistent:undefined,deviceId:null,deviceName:null,route:null,info:null,members:[],leases:[],controlPolicy:null,controlRequests:[],error:null,roomProgress:null});
   }
   dispose():void{if(this.#disposed)return;this.logout();this.#disposed=true;this.#listeners.clear();}
 }

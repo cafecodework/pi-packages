@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { lstat, open } from 'node:fs/promises';
 import { inspectCafe, localCafeURL, type CafeConfig, type CafeInfo } from './cafe-client.js';
+import { CafeApprovalController } from './cafe-approvals.js';
 import { CafePanel, type CafeAction, type CafeView } from './cafe-render.js';
 import { browserAction, clipboardAction, createQrPreview, previewBrowserAction, isRemoteTerminal, runNativeAction } from './cafe-actions.js';
 
-export interface CafeOwner { config(): CafeConfig; status(): string; connect(ctx: ExtensionContext): Promise<void>; disconnect(): void }
+export interface CafeOwner { config(): CafeConfig; status(): string; connect(ctx: ExtensionContext): Promise<void>; disconnect(): void; modelsRefreshed?(ctx: ExtensionContext): void }
 export async function claimOnboarding(config: CafeConfig): Promise<boolean> {
   if (!config.credentialsFile) return false;
   const dir = dirname(config.credentialsFile), base = localCafeURL(config.relayUrl); if (!base) return false;
@@ -30,9 +31,9 @@ export function cafeView(info: CafeInfo, localStatus: string, sharing: boolean, 
       details.push('手机相机扫码，或在另一台设备打开链接。', '密码只由房主另行告知，不显示在这里。');
       items = [{ action: 'preview', label: '显示高清二维码，无需登录  [P]' }, { action: 'copy', label: '复制房间链接  [C]' }, { action: 'open', label: '在浏览器中管理分享  [B]' }, { action: 'refresh', label: '刷新房间状态  [R]' }, { action: 'back', label: '返回' }];
     } else {
-      items = [{ action: 'share', label: '分享房间：二维码与链接' }, { action: 'open', label: '打开网页工作台与分享管理  [B]' }, { action: 'refresh', label: '检查连接  [R]' }, { action: joined ? 'disconnect' : 'connect', label: joined ? '仅将当前 Pi 移出房间' : '将当前 Pi 加入房间' }, { action: 'exit', label: '返回 Pi' }];
+      items = [{ action: 'share', label: '分享房间：二维码与链接' }, { action: 'approvals', label: '审批当前 Pi 的控制权申请  [A]' }, { action: 'open', label: '打开网页工作台与分享管理  [B]' }, { action: 'refresh', label: '检查连接  [R]' }, { action: joined ? 'disconnect' : 'connect', label: joined ? '仅将当前 Pi 移出房间' : '将当前 Pi 加入房间' }, { action: 'exit', label: '返回 Pi' }];
     }
-    details.push('持有链接和密码的访客可查看内容并申请控制 Pi。');
+    details.push('审批关闭时访客可直接操作；开启后须由房主批准。');
     if (!info.online) details.push('链接可以复制，但当前不能保证手机能够连接；请稍后刷新。');
   } else {
     const copy: Record<CafeInfo['state'], [string, string]> = {
@@ -56,10 +57,12 @@ export class CafeController {
   #controller = new AbortController(); #opened = false; #generation = 0;
   #preview: { url: string; file: Awaited<ReturnType<typeof createQrPreview>>; timer: ReturnType<typeof setTimeout> } | null = null;
   #clearPreview(): void { const old = this.#preview; this.#preview = null; if (old) { clearTimeout(old.timer); void old.file.dispose().catch(() => {}); } }
-  constructor(private readonly owner: CafeOwner) {}
+  #approvals: CafeApprovalController;
+  constructor(private readonly owner: CafeOwner, private readonly api?: Pick<ExtensionAPI,'setModel'|'getThinkingLevel'|'setThinkingLevel'>) { this.#approvals = new CafeApprovalController(() => this.owner.config()); }
   onStart(ctx: ExtensionContext): void {
     if (this.#controller.signal.aborted) this.#controller = new AbortController();
     if (ctx.mode !== 'tui' || !ctx.hasUI) return;
+    this.#approvals.start(ctx);
     const generation = this.#generation;
     void (async () => {
       const config = this.owner.config(); const first = await claimOnboarding(config);
@@ -70,15 +73,29 @@ export class CafeController {
       }
     })().catch(() => { /* Onboarding is optional and must not block Pi. */ });
   }
-  stop(): void { this.#generation++; this.#controller.abort(); this.#clearPreview(); }
+  stop(): void { this.#approvals.stop(); this.#generation++; this.#controller.abort(); this.#clearPreview(); }
   async command(args: string, ctx: ExtensionCommandContext): Promise<void> {
     if (ctx.mode !== 'tui' || !ctx.hasUI) { if (ctx.hasUI) ctx.ui.notify('请在交互式 Pi 终端使用 /cafe；RPC 不展示房间邀请或二维码。', 'info'); return; }
     if (this.#opened) { ctx.ui.notify('Café Space 面板已打开，Esc 可返回。', 'info'); return; }
-    const verb = args.trim(); if (!['', 'share', 'qr', 'open', 'status', 'help', 'connect', 'disconnect'].includes(verb)) { ctx.ui.notify('用法：/cafe · /cafe share · /cafe qr · /cafe open · /cafe status。不要在命令后填写密码。', 'warning'); return; }
+    const verb = args.trim(); if (!['', 'share', 'qr', 'open', 'status', 'help', 'connect', 'disconnect', 'approvals', 'models'].includes(verb)) { ctx.ui.notify('用法：/cafe · /cafe share · /cafe qr · /cafe open · /cafe status · /cafe approvals · /cafe models（重新读取模型配置）。不要在命令后填写密码。', 'warning'); return; }
     if (this.#controller.signal.aborted) this.#controller = new AbortController();
     this.#opened = true; const generation = this.#generation, signal = this.#controller.signal;
     let sharing = verb === 'share' || verb === 'qr', notice = '', first = true;
     try {
+      if (verb === 'models') {
+        if (!this.api || !ctx.isIdle()) { ctx.ui.notify('Café Space · 请等待当前任务结束后再重新加载模型配置。','warning'); return; }
+        const current=ctx.model,sessionId=ctx.sessionManager.getSessionId(),cwd=ctx.cwd,level=this.api.getThinkingLevel();
+        if(!current){ctx.ui.notify('Café Space · 当前未选择模型。','warning');return;}
+        const registry=ctx.modelRegistry as typeof ctx.modelRegistry & {refresh:(options?:{allowNetwork?:boolean})=>Promise<unknown>};
+        await registry.refresh({allowNetwork:false});
+        if(!ctx.isIdle()||ctx.sessionManager.getSessionId()!==sessionId||ctx.cwd!==cwd||ctx.model?.provider!==current.provider||ctx.model?.id!==current.id){ctx.ui.notify('Café Space · 会话或模型已变化，没有替换当前模型。','warning');return;}
+        const updated=ctx.modelRegistry.find(current.provider,current.id);
+        if(!updated||!await this.api.setModel(updated)){ctx.ui.notify('Café Space · 未能重新加载当前模型，请检查本机模型配置。','warning');return;}
+        this.api.setThinkingLevel(level);
+        this.owner.modelsRefreshed?.(ctx);
+        ctx.ui.notify(`Café Space · 已重新读取 ${updated.id} 的模型配置；当前思考等级 ${this.api.getThinkingLevel()}。`,'info');return;
+      }
+      if (verb === 'approvals') { await this.#approvals.open(ctx); return; }
       if (verb === 'connect') await this.owner.connect(ctx);
       if (verb === 'disconnect') { const yes = await ctx.ui.confirm('仅移出当前 Pi', '当前 Pi 将不再向房间提供会话，其他 Pi 和正在本地执行的任务不受影响。', { signal }); if (yes && !signal.aborted) this.owner.disconnect(); }
       for (;;) {
@@ -101,6 +118,7 @@ export class CafeController {
         if (signal.aborted || generation !== this.#generation || action === 'exit') return;
         if (action === 'back') { sharing = false; continue; }
         if (action === 'share') { sharing = true; continue; }
+        if (action === 'approvals') { await this.#approvals.open(ctx); continue; }
         if (action === 'refresh') continue;
         if (action === 'copy' && info.url) {
           const current = await inspectCafe(config, true, signal);
@@ -135,7 +153,7 @@ export class CafeController {
   }
 }
 export function registerCafe(pi: ExtensionAPI, owner: CafeOwner): CafeController {
-  const controller = new CafeController(owner);
-  pi.registerCommand('cafe', { description: 'Café Space：分享房间、终端二维码、复制链接和连接状态', getArgumentCompletions: prefix => ['share','qr','open','status','help','connect','disconnect'].filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })), handler: (args, ctx) => controller.command(args, ctx) });
+  const controller = new CafeController(owner, pi);
+  pi.registerCommand('cafe', { description: 'Café Space：分享房间、控制权审批、二维码和连接状态', getArgumentCompletions: prefix => ['share','qr','open','status','help','connect','disconnect','approvals','models'].filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })), handler: (args, ctx) => controller.command(args, ctx) });
   return controller;
 }
