@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionSnapshot } from '../../../../../src/protocol/index';
 import styles from './Conversation.module.scss';
+import { CoffeeActivityMark } from './CoffeeActivityMark';
 
 export type AgentActivityKind = 'thinking' | 'responding' | 'tool' | 'working' | 'waiting' | 'offline' | null;
 function lastMatch<T>(items: T[], match: (item: T) => boolean): T | undefined { for (let i = items.length - 1; i >= 0; i--) if (match(items[i]!)) return items[i]; return undefined; }
@@ -31,7 +32,7 @@ export function AgentActivity({ snapshot, connected = true }: { snapshot: Sessio
   const text = zh ? { thinking: '正在思考', responding: '正在回复', tool: '正在执行', working: '正在处理', waiting: '等待办公电脑上的确认', offline: '连接已中断，状态暂未更新' } : { thinking: 'Thinking', responding: 'Responding', tool: 'Running', working: 'Working', waiting: 'Waiting for confirmation on the office computer', offline: 'Disconnected · status is not live' };
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   return <div className={styles.activity} data-activity={activity.kind}>
-    <span aria-hidden="true" className={styles.activityGlyph}>{active && activity.kind !== 'waiting' ? '✳' : '·'}</span>
+    <CoffeeActivityMark steaming={active && activity.kind !== 'waiting'} />
     <span role="status" aria-live="polite" className={styles.activityLabel}>{text[activity.kind]}{activity.tool && <code>{activity.tool}</code>}</span>
     {active && seconds > 0 && <small aria-hidden="true" title={zh ? '从本次观察开始计时，不是计费时间' : 'Time since this activity was observed, not billing duration'}>{elapsed}</small>}
   </div>;

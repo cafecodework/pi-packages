@@ -15,6 +15,13 @@ it('uses real latest activity, not configuration or old thinking content',()=>{
  expect(agentActivity({...base,phase:'idle',messages:[{...message,thinking:'old'}]}).kind).toBeNull();
  expect(agentActivity({...base,phase:'waiting_local_ui'}).kind).toBe('waiting');expect(agentActivity(base,false).kind).toBe('offline');
 });
+it('uses a stable decorative SVG coffee mark and stops steam while waiting/offline',async()=>{
+ const i18n=createI18n();await i18n.changeLanguage('en');
+ const {container,rerender}=render(<I18nextProvider i18n={i18n}><AgentActivity snapshot={base}/></I18nextProvider>);
+ const svg=container.querySelector('svg[data-coffee-indicator]');expect(svg).not.toBeNull();expect(svg).toHaveAttribute('aria-hidden','true');expect(svg).toHaveAttribute('data-steaming','true');expect(container.textContent).not.toContain('✳');expect(container.textContent).not.toContain('☕');expect(svg?.querySelectorAll('path').length).toBeGreaterThan(3);
+ rerender(<I18nextProvider i18n={i18n}><AgentActivity snapshot={{...base,phase:'waiting_local_ui'}}/></I18nextProvider>);expect(svg).toHaveAttribute('data-steaming','false');
+ rerender(<I18nextProvider i18n={i18n}><AgentActivity snapshot={base} connected={false}/></I18nextProvider>);expect(svg).toHaveAttribute('data-steaming','false');
+});
 it('activity clock stops while offline and is cleaned on unmount',async()=>{
  vi.useFakeTimers();const i18n=createI18n();await i18n.changeLanguage('en');
  const {rerender,unmount}=render(<I18nextProvider i18n={i18n}><AgentActivity snapshot={base}/></I18nextProvider>);

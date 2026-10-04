@@ -2,7 +2,31 @@
 
 2026-10-04。用户已明确反馈手机“连上了”，本轮不再调整DCEP、DTLS、SCTP或TURN协议。需求是解释控制权、重新整理手机布局、减少Pi反复重连警告；补充要求思考状态、工具调用和代码diff参考同仓库pi-theme-cafecode。本轮已在公共网站发布新界面，并安装低噪声Pi扩展；不是仅修改源码。
 
-## 控制权：保留并发保护，移除额外的手动步骤
+## 当前界面：咖啡状态、阅读留白与统一房间入口
+
+用户提供真实iPhone截图，指出消息拥挤、输入聚焦出现方框、工作符号变成绿色emoji；同时要求完成先前分享/房间设置整合。本轮已把两项工作合并到coffee-ui版本，本机网关与公共cloud均已发布，旧房间身份、凭据、配置和房主审批选择保持。只重载Café Space受管网关与cloud，没有结束用户Pi任务，Caddy/TURN未改或重启。
+
+正文按段落、列表项、标题、代码块建立独立间距；恢复被基础样式隐藏的有序编号和无序圆点，行内代码减轻字重与相对字号、跨行背景正确包裹。手机正文仍15px、输入16px，不改消息内容。真实390px渲染测得列表项及代码块到下一项距离21px，行内代码12.9px。首轮测试误用代码块本身margin作为项间距，因列表末尾子元素margin为0而失败；改为测量真实几何距离，未降低间距要求。
+
+输入焦点用同一18px圆角边框和低透明度咖啡色光晕，去掉square outline；按钮键盘焦点与forced-colors回退保留。运行时空输入不常驻一整行发送方式，开始输入后才出现选择，但仍需明确选择才能发送，没有自动改为跟进或插话。回到最新按钮移入消息滚动层，不覆盖活动条与计时。
+
+工作标记换为固定SVG咖啡杯、杯柄与碟子，三缕蒸汽轻微浮动；没有Unicode星形、咖啡emoji或外部图片，不会被手机的emoji字体替换。杯子不旋转；等待/离线不播放蒸汽，减少动态效果时完全停止。活动文字仍来自原真实快照，未增加虚假进度。
+
+房主只需要「分享房间」一个入口，面板顶部分为「分享 / 房间设置」。分享页突出二维码、链接、复制和简短密码说明；设置页容纳本机审批、密码以及独立危险操作区的链接重置。修复本机根路径未带roomId时漏显示设置的问题，窄屏本机页面有直接分享图标。待审批数量标在页签/入口，点击待办进入同一设置页，不叠加第二个抽屉。标签键盘可切换，关闭焦点返回稳定入口；切页只清理未提交表单，不修改设置。复制失败不显示成功图标，修改结果未知时隐藏可能过期的二维码并要求刷新。审批、密码、重置都保持原确认与后端保护，远程访客不会因此获得房主管理入口。
+
+验证：完整Web45文件221项、TypeScript、最终打包Go各包检查通过。实际本机Chrome最终17组综合流程通过，报告`.refactor/reports/coffee-ui-release-20261004/result.json`及`reading-focus-metrics.json`；涵盖统一根路径入口、二维码独立解码、审批/拒绝/撤销、密码/链接、中文列表与焦点、咖啡SVG和减少动态、320/390/430宽度、390×420键盘高度模拟。4次合成prompt，模型调用0，未审批生产访客。第一次实际流程还发现待办计数改变“Share room”可访问名称，现已固定aria-label并通过原流程。失败报告coffee-ui-local与coffee-ui-final保留，没有以单元测试替代浏览器通过。
+
+实际截图通过独立只读窗口复核，文件包括mobile-cn-reading.png、mobile-cn-focus.png、mobile-cn-brewing.png、share-390.png和settings-390.png。物理iPhone的原生键盘/浏览器底栏没有远程操作，浏览器缩小视口不等于真机验收。构建仍有既有大JS分块提示，本轮没有宣称解决加载性能问题。实际上线网页的17组最终综合验收也已全部通过，报告`.refactor/reports/coffee-ui-public-20261004/result.json`，原操作退出0并完成清理，4次合成prompt、模型调用0。最后另核对本机/公网精确JS、CSS、健康接口与网关运行路径均匹配coffee-ui版本。
+
+运行版本`~/.local/share/pi-cafe-space/0.1.0-coffee-ui-20261004`，JS`assets/index-WI_23KqY.js`、CSS`assets/index-CsIzW7zP.css`。本机旧服务备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-coffee-ui.plist`，新plist SHA`76448b8d17ea68a812ca9f4f7e83a9964bcafae45e0d41a334b376ef9926ecbf`。cloud镜像`pi-cafe-space-cloud:0.1.0-coffee-ui-20261004`，回执`coffee-ui-deployment.json`，回退`backups/before-coffee-ui-20261004`，Compose SHA`1f5630ebcda92484d5048498c89d538bfbdfe6fda7748bf71a45b84bcd0e98db`。原cloud配置及Caddy/TURN启动时间验证保持。
+
+最终41文件包`.refactor/release/pack-6tZwuS/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`c16b42bd5796021c0c4c2aca7aab6343d01314178d76b716efc340975079c2e1`；Mac程序`3a2d5c00a6825a98c2d5e633545636cdccb7f1f857e9f931bbdea48ddeff75ed`，Linux程序`9b90cd85d02fd5f3774779ae92800ba2676959bc73c36fa1a2a782891898c286`，Web摘要`1c4b99a978c517aa1556802cb582d600dbf14b892c9ec96481b8e8e1f3e896fb`。Windows仅交叉编译。未commit/push或发布远端release。手机与电脑刷新网页即可，无需重开Pi或/reload。
+
+## 后续策略更新
+
+用户随后要求控制权默认关闭，并由房主选择是否启用；启用后必须在房主本机页面批准。此要求已经在room-control版本实现和部署，见[ROOM_CONTROL.md](ROOM_CONTROL.md)。下面的自动取得空闲控制权描述仅记录mobile-ux版本历史，不是当前公共房间行为。手机布局、工作状态、diff和低噪声提醒保留。
+
+## 前序控制权：保留并发保护，移除额外的手动步骤
 
 控制权是按Pi实例的远程写入协调设计，不是WebRTC本身的必需步骤，也不锁住办公电脑本地终端。多人同时发送、切换模型、打断或切换会话，需要防止互相覆盖；租约机制仍由办公网关判定。
 

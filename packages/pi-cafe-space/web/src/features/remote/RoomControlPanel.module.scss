@@ -1,4 +1,4 @@
-.panel { display: grid; gap: 22px; min-width: 0; color: var(--cafe-ink); }
+.panel { display: grid; gap: 16px; min-width: 0; color: var(--cafe-ink); }
 .eyebrow { margin: 0; font-size: 11px; letter-spacing: .12em; color: var(--cafe-muted); }
 .setting { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--cafe-line); border-radius: var(--cafe-radius-panel); background: var(--cafe-surface-secondary); }
 .toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; }
@@ -22,3 +22,6 @@
 .empty { color: var(--cafe-muted); padding-block: 8px; }
 .panel .error { color: var(--cafe-danger); }
 .panel .footnote { font-size: 11px; }
+.rules { border-top: 1px solid var(--cafe-line); padding-top: 8px; color: var(--cafe-muted); }
+.rules summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 12px; }
+.rules p { padding-bottom: 8px; }

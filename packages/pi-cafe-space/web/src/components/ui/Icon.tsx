@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 const paths = {
   more: 'M4 10h.01 M10 10h.01 M16 10h.01',
+  share: 'M10 13V2 M6 6l4-4 4 4 M5 9H3v9h14V9h-2',
   message: 'M18 13a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3Z M7 7h7 M7 11h4',
   hosts: 'M3 3h14v10H3Z M7 17h6 M10 13v4 M6 7l2 2-2 2 M11 10h3',
   folder: 'M2 5h6l2 2h8v10H2Z',

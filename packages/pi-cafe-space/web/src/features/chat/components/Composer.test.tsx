@@ -49,6 +49,11 @@ it('Enter sends exactly once, Shift+Enter and IME never send; acknowledgement is
   expect(input).toHaveValue('');
   expect(screen.queryByRole('button', { name: 'Abort' })).not.toBeInTheDocument();
 });
+it('focus tracks only the input surface and an empty running draft has no delivery row',()=>{
+ const send=vi.fn(async()=>applied);const {container}=render(<Composer scopeId="a" enabled phase="running" send={send} abort={send}/>,{wrapper});
+ const input=screen.getByRole('textbox');const surface=container.querySelector('[data-composer-surface]');expect(surface).toHaveAttribute('data-focused','false');expect(screen.queryByRole('combobox')).toBeNull();fireEvent.focus(input);expect(surface).toHaveAttribute('data-focused','true');fireEvent.blur(input);expect(surface).toHaveAttribute('data-focused','false');expect(send).not.toHaveBeenCalled();
+ fireEvent.change(input,{target:{value:'additional detail'}});expect(screen.getByRole('combobox')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Send'})).toBeDisabled();expect(send).not.toHaveBeenCalled();
+});
 it('requires explicit delivery while running and permits independent abort while send waits', async () => {
   let settle!: (result: GatewayResult) => void;
   const send = vi.fn(() => new Promise<GatewayResult>(resolve => { settle = resolve; }));

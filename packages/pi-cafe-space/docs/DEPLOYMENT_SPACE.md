@@ -4,7 +4,29 @@
 
 使用既有服务器 `152.53.90.186`，SSH端口 `2012`、账户 `root`；域名为 `space.cafecode.work`，用户已在Cloudflare设置，服务器已有Caddy。要求用Docker部署云端Café Space，复用既有Caddy而不是覆盖其他站点。手机、笔记本希望同网、异地和蜂窝均可访问。密码不保存在此文档、源码或部署文件中。
 
-## 当前公共界面与Pi扩展：手机体验升级已发布
+## 当前运行版本：咖啡风格手机界面与统一分享设置
+
+本机网关、Pi登记与cloud已更新为`0.1.0-coffee-ui-20261004`。中文消息的段落/列表/代码块分开留白，输入聚焦使用圆角边框而非方形outline，活动图标为固定SVG咖啡杯与轻微蒸汽；不会在iPhone变成彩色emoji。分享和房间设置位于同一面板，路径为本机「分享房间 → 房间设置」，直接根路径缺失设置的情况已修复。原控制权默认关闭、本机人工批准、密码和连接协议保持。
+
+实际资源`assets/index-WI_23KqY.js`、`assets/index-CsIzW7zP.css`。本次仅重载受管网关与cloud，没有结束用户Pi任务；安装前后身份/凭据/room-device/可选控制配置摘要不变。Caddy/TURN配置与启动时间未变。本机旧服务备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-coffee-ui.plist`，新SHA`76448b8d17ea68a812ca9f4f7e83a9964bcafae45e0d41a334b376ef9926ecbf`。
+
+cloud镜像`pi-cafe-space-cloud:0.1.0-coffee-ui-20261004`，Compose SHA`1f5630ebcda92484d5048498c89d538bfbdfe6fda7748bf71a45b84bcd0e98db`，回执`coffee-ui-deployment.json`，回退`backups/before-coffee-ui-20261004`。保留精确本站WSS CSP和原cloud配置。
+
+完整221项Web与类型检查、打包Go检查通过，本机最终17组浏览器流程通过并视觉检查中文阅读/聚焦/咖啡状态及分享设置；完整证据与实际上线验收终态见[MOBILE_UX.md](MOBILE_UX.md)当前段。浏览器缩小视口不代替物理iPhone键盘实测。用户刷新手机和本机页面即可，无需/reload或重新启动Pi。
+
+最终包`.refactor/release/pack-6tZwuS/cafecodework-pi-cafe-space-0.1.0.tgz`，41文件，SHA`c16b42bd5796021c0c4c2aca7aab6343d01314178d76b716efc340975079c2e1`。未commit/push或发布远端release。
+
+## 前序运行版本：房间控制权默认关闭、本机房主审批
+
+本机网关、Pi登记与cloud均已更新为`0.1.0-room-control-20261004`。当前生产房间没有控制配置文件，使用默认关闭：有操作权限的访客直接使用Pi，不申请租约；房主可在办公电脑本机工作台「房间设置」明确开启。开启后必须本机页面逐项批准，远程不能自批、强抢或改设置，批准不会自动执行草稿。完整规则见[ROOM_CONTROL.md](ROOM_CONTROL.md)。
+
+本轮为启用新的后端授权规则只重载受管网关与cloud，未结束用户Pi。原身份、凭据和room-device配置摘要不变，Caddy/TURN未改或重启。旧本机启动文件备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-room-control.plist`，新LaunchAgent SHA`0d4979d9c599e7087f35617662499ba1caa823e6114fd1da72f02292fe45233f`。手机和本机刷新网页即可，不用修改密码或重开Pi。
+
+实际本机/公网JS均为`assets/index-BtIZyT5V.js`，CSS`assets/index-iqSUbShJ.css`。cloud镜像`pi-cafe-space-cloud:0.1.0-room-control-20261004`；Compose SHA`f02c7f4d173b576acd974eb74eece2597339c6a5bd1790533d724bf6bec9b820`，回执`room-control-deployment.json`，备份`backups/before-room-control-20261004`。房主启用审批后，不得无审阅回退到不认识新策略的旧网关。
+
+213项Web与类型检查、7项新增审批/HTTP/Pion专项race、完整remote/service race及vet通过。真实浏览器默认免申请、本机确认开关、批准/拒绝/撤销/撤回、无自动发送及原手机/密码/房间流程均有记录，完整测试范围和公网终态见ROOM_CONTROL.md。最终包`pack-IXi6h0/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`25c8f10f8aad966bad2bef18ace4b801c94a967d55a228d5652d382aff016437`。未commit/push或发布远端release。
+
+## 前序公共界面与Pi扩展：手机体验升级
 
 用户已经反馈手机连通。本轮公共cloud和Pi扩展更新为`0.1.0-mobile-ux-20261004`：手机精简实例/文件/更多入口、真实工作状态和可展开代码diff；主动发送时自动申请空闲控制权，他人占用则保留草稿不抢占；短重连只更新状态，同一故障只通知一次，恢复连续稳定60秒后再通知。
 
@@ -16,7 +38,7 @@
 
 最终41文件包`.refactor/release/pack-QkL4Tj/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`cdce9b527f659b69dd52d8e90f32196bb18436294c914c204ba68f174f7d991b`。尚未commit/push或发布远端release。
 
-## 当前网关与前序扩展：通道就绪竞争修复已启用
+## 前序网关与扩展：通道就绪竞争修复
 
 Mac网关和Pi登记为`~/.local/share/pi-cafe-space/0.1.0-dc-ready-fix-20261004`。修复了真实可复现的时序错误：浏览器收到DCEP确认已open，但办公端接收回调尚未完成时，旧代码会把select判为无效并主动关闭。现在只保存待选择意图，由本机OnOpen完成确认；不提前开放业务或跳过密码验证，不阻塞其他访客信令。
 

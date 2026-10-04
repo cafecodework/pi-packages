@@ -91,7 +91,7 @@ func TestRoomEndToEndDirectAndTURN(t *testing.T){
   select{case<-r.incoming:t.Fatal("data leaked before password");case<-time.After(80*time.Millisecond):}
   r.authenticate("123456");info:=r.receive("room.authenticated");if info["role"]!="operator"||info["managed"]!=false{t.Fatal("guest escalated")};r.hello();r.receive("remote.presence")
   second:=connectRoom(t,f,turnOnly);second.authenticate("123456");second.receive("room.authenticated");second.hello();second.receive("remote.presence")
-  r.send(control("take","pi-a","acquire",false));if r.receive("remote.result")["ok"]!=true{t.Fatal("control acquire")}
+  r.send(control("take","pi-a","acquire",false));if r.receive("remote.result")["code"]!="CONTROL_DISABLED"{t.Fatal("default room unexpectedly created control lease")};if f.agent.control.RoomMode("main")!="disabled"{t.Fatal("room control not off by default")}
   second.send(control("takeover","pi-a","acquire",true));if second.receive("remote.result")["code"]!="FORBIDDEN"{t.Fatal("guest forced control")}
   r.send(prompt("once","pi-a"));eventually(t,func()bool{return f.host["pi-a"].count("routed_command")==1});if f.host["pi-b"].count("routed_command")!=0{t.Fatal("cross-instance command")}
   key,rev:=f.agent.room.snapshot();if f.agent.room.change("abcdef",false,rev)!=nil{t.Fatal("password change")};f.agent.invalidateRoom();eventually(t,func()bool{return r.dc.ReadyState()==webrtc.DataChannelStateClosed})

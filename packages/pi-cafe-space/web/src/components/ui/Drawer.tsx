@@ -21,10 +21,10 @@ function drawerTabStops(root: HTMLElement): HTMLElement[] {
     return true;
   });
 }
-export function Drawer({ label, closeLabel, children, onClose, restoreFocusTo, compact = false }: { compact?: boolean; label: string; closeLabel: string; children: ReactNode; onClose: () => void; restoreFocusTo: HTMLElement | null }) {
+export function Drawer({ label, closeLabel, children, onClose, restoreFocusTo, compact = false, room = false }: { room?: boolean; compact?: boolean; label: string; closeLabel: string; children: ReactNode; onClose: () => void; restoreFocusTo: HTMLElement | null }) {
   const container = useUiPortal(); const content = useRef<HTMLDivElement>(null);
   return <Sheet open onOpenChange={open => { if (!open) onClose(); }}>
-    <SheetContent ref={content} container={container} showCloseButton={false} className={`${styles.drawer} gap-0 overflow-auto overscroll-contain p-4 data-[side=right]:w-[min(380px,calc(100vw-24px))] [&_button]:max-w-full [&_a]:max-w-full ${compact ? styles.compact : ''}`}
+    <SheetContent ref={content} container={container} showCloseButton={false} className={`${styles.drawer} gap-0 overflow-auto overscroll-contain p-4 data-[side=right]:w-[min(380px,calc(100vw-24px))] [&_button]:max-w-full [&_a]:max-w-full ${compact ? styles.compact : ''} ${room ? styles.room : ''}`}
       aria-label={label} aria-modal="true" aria-describedby={undefined}
       initialFocus={() => {
         if (!content.current) return false;
@@ -39,7 +39,7 @@ export function Drawer({ label, closeLabel, children, onClose, restoreFocusTo, c
         if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }}>
-      <SheetHeader className="mb-5 flex-row items-center justify-between gap-3 p-0 pb-3"><SheetTitle>{label}</SheetTitle><SheetClose render={<Button variant="quiet" aria-label={closeLabel} />}><Icon name="close" />{!compact && closeLabel}</SheetClose></SheetHeader>
+      <SheetHeader className={`mb-5 flex-row items-center justify-between gap-3 p-0 pb-3 ${room ? styles.roomHeader : ''}`}><SheetTitle>{label}</SheetTitle><SheetClose render={<Button variant="quiet" aria-label={closeLabel} />}><Icon name="close" />{!compact && closeLabel}</SheetClose></SheetHeader>
       {children}
     </SheetContent>
   </Sheet>;

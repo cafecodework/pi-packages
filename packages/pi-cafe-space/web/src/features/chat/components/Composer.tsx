@@ -22,6 +22,7 @@ export interface ComposerProps {
   localCommands?: CompletionItem[];
   send: (text: string, delivery?: Delivery, files?: string[]) => Promise<GatewayResult>;
   abort: () => Promise<GatewayResult>;
+  onApprovalRequired?: (trigger: HTMLElement | null) => void;
 }
 const initial = () => ({ text: '', delivery: '' as '' | Delivery, sending: false, aborting: false, result: null as GatewayResult | null });
 function boundedText(value: string) {
@@ -29,7 +30,7 @@ function boundedText(value: string) {
   if (end < value.length && end > 0 && /[\uD800-\uDBFF]/.test(value[end - 1]!)) end--;
   return value.slice(0, end);
 }
-export function Composer({ scopeId, enabled, phase, readOnly = false, send, abort, context, navigation, inputAssist = false, readCompletions, localCommands = [] }: ComposerProps) {
+export function Composer({ scopeId, enabled, phase, readOnly = false, send, abort, context, navigation, inputAssist = false, readCompletions, localCommands = [], onApprovalRequired }: ComposerProps) {
   const { t, i18n } = useTranslation(); const hintId = useId();
   const zh = i18n.language.startsWith('zh');
   const [draft, update] = useImmer(initial);
@@ -80,9 +81,10 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
       else d.aborting = false;
       d.result = result;
     });
+    if (result.status === 'rejected' && ['CONTROL_APPROVAL_REQUIRED','CONTROL_REQUIRED'].includes(result.code ?? '')) onApprovalRequired?.(input.current);
   };
   if (readOnly) return <p className={styles.readonly}>{t('readOnlyHistory')}</p>;
-  return <form className={styles.composer} onSubmit={event => { event.preventDefault(); void execute('send'); }}>
+  return <form className={styles.composer} data-running={running} onSubmit={event => { event.preventDefault(); void execute('send'); }}>
     {navigation && <div className={styles.navigation}>{navigation}</div>}
     {completions.target && <div className={styles.completions}>
       <p>{t(completions.target.kind === 'command' ? 'commandCompletionHint' : 'fileCompletionHint')}</p>
@@ -94,7 +96,7 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
       {!completions.loading && !completions.error && !completions.items.length && <p role="status">{t('noCompletions')}</p>}
       {completions.truncated && <p>{t('completionTruncated')}</p>}
     </div>}
-    <FieldGroup className={styles.inputShell}><Field data-disabled={!enabled}><FieldLabel className="sr-only" htmlFor={`${hintId}-input`}>{t('message')}</FieldLabel><Textarea ref={input} id={`${hintId}-input`} aria-autocomplete="list" aria-haspopup="listbox" aria-controls={completions.target ? `${hintId}-completions` : undefined} aria-activedescendant={completions.target && completions.items.length ? `${hintId}-option-${selected}` : undefined} aria-label={t('message')} aria-describedby={hintId} placeholder={t('composerPlaceholder')} value={draft.text} maxLength={65536} disabled={!enabled} rows={1}
+    <FieldGroup className={styles.inputShell} data-focused={focused} data-composer-surface><Field data-disabled={!enabled}><FieldLabel className="sr-only" htmlFor={`${hintId}-input`}>{t('message')}</FieldLabel><Textarea ref={input} id={`${hintId}-input`} aria-autocomplete="list" aria-haspopup="listbox" aria-controls={completions.target ? `${hintId}-completions` : undefined} aria-activedescendant={completions.target && completions.items.length ? `${hintId}-option-${selected}` : undefined} aria-label={t('message')} aria-describedby={hintId} placeholder={t('composerPlaceholder')} value={draft.text} maxLength={65536} disabled={!enabled} rows={1}
       onChange={event => { setCursor(event.target.selectionStart); update(d => { d.text = boundedText(event.target.value); }); }}
       onSelect={event => setCursor(event.currentTarget.selectionStart)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
@@ -116,9 +118,9 @@ export function Composer({ scopeId, enabled, phase, readOnly = false, send, abor
     </Field>
     <div className={styles.controls}>
       {context && <div className={styles.context}>{context}</div>}
-      {running && <ChoiceSelect label={t('delivery')} value={draft.delivery} disabled={!enabled || draft.sending}
+      {running && !!draft.text.trim() && <div className={styles.delivery}><ChoiceSelect labelHidden label={t('delivery')} value={draft.delivery} disabled={!enabled || draft.sending}
         items={[{ value: '', label: t('chooseDelivery') }, { value: 'steer', label: t('steer') }, { value: 'followUp', label: t('followUp') }]}
-        onValueChange={value => { if (value === '' || value === 'steer' || value === 'followUp') update(d => { d.delivery = value; }); }} />}
+        onValueChange={value => { if (value === '' || value === 'steer' || value === 'followUp') update(d => { d.delivery = value; }); }} /></div>}
       <div className={styles.actions}>{running && <Button variant="quiet" aria-label={t('abort')} loading={draft.aborting} disabled={!enabled || !running || draft.aborting} onClick={() => void execute('abort')}><Icon name="stop" /><span className={styles.actionLabel}>{t('abort')}</span></Button>}
       <Button type="submit" variant="primary" aria-label={t('send')} loading={draft.sending} disabled={!canSend}><Icon name="send" /><span className={styles.actionLabel}>{t('send')}</span></Button></div>
     </div></FieldGroup>

@@ -32,6 +32,10 @@ export function useRoomControlOwner(owner:AppOwner,active:boolean){
 }
 export type RoomControlOwner = ReturnType<typeof useRoomControlOwner>;
 export function RoomControlPanel({owner,control,trigger,onClose}:{owner:AppOwner;control:RoomControlOwner;trigger:HTMLElement;onClose:()=>void}){
+ const {i18n}=useTranslation(),zh=i18n.language.startsWith('zh');
+ return <Drawer label={zh?'房间设置':'Room settings'} closeLabel={zh?'关闭':'Close'} restoreFocusTo={trigger} onClose={onClose}><RoomControlContent owner={owner} control={control}/></Drawer>;
+}
+export function RoomControlContent({owner,control}:{owner:AppOwner;control:RoomControlOwner}){
  const {i18n}=useTranslation(),zh=i18n.language.startsWith('zh');const {data,error,busy,uncertain,run}=control;
  const hosts=useCollabStore(owner.store,s=>s.hosts);
  const [changing,setChanging]=useState<boolean|null>(null);
@@ -41,16 +45,14 @@ export function RoomControlPanel({owner,control,trigger,onClose}:{owner:AppOwner
  const messages:Record<string,string>=zh?{
   RESULT_UNKNOWN:'操作结果未确认。请点击刷新核对，勿重复审批。',UNAUTHORIZED:'本机登录已失效，请重新登录。',LOCAL_OWNER_REQUIRED:'只有房主的办公电脑本机页面可以设置与审批。',ROOM_CONTROL_CHANGED:'设置已在另一页面修改，请刷新后再操作。',CONTROL_REQUEST_GONE:'申请已被处理、撤回或连接已离线，请刷新。',CONTROL_REQUEST_EXPIRED:'申请已过期，未授予控制权。',CONTROL_BUSY:'已有访客持有该实例控制权。请先撤销原授权，再批准。',HOST_NOT_READY:'申请的访客或Pi实例已离线，不能批准。',CONTROL_DISABLED:'控制权功能已经关闭。',CONTROL_LIMIT:'当前申请或授权数量已达上限。'
  }:{RESULT_UNKNOWN:'The outcome is unconfirmed. Refresh before another decision.',UNAUTHORIZED:'Local sign-in expired.',LOCAL_OWNER_REQUIRED:'Only the local page on the office computer can manage approvals.',ROOM_CONTROL_CHANGED:'Settings changed in another page. Refresh first.',CONTROL_REQUEST_GONE:'Request already handled, withdrawn, or disconnected.',CONTROL_REQUEST_EXPIRED:'The request expired. No control was granted.',CONTROL_BUSY:'Another visitor holds this instance. Revoke that grant before approving.',HOST_NOT_READY:'The visitor or Pi is no longer available.',CONTROL_DISABLED:'Control approval is now disabled.',CONTROL_LIMIT:'Request or grant limit reached.'};
- return <Drawer label={zh?'房间设置':'Room settings'} closeLabel={zh?'关闭':'Close'} restoreFocusTo={trigger} onClose={onClose}>
-  <div className={styles.panel}>
-   <p className={styles.eyebrow}>{zh?'仅房主本机':'LOCAL OWNER ONLY'}</p>
+ return <div className={styles.panel}>
    {!data&&<p role="status">{zh?'正在读取房间设置…':'Loading room settings…'}</p>}
    {data&&<>
     <section className={styles.setting}>
      <label className={styles.toggle}><span><strong>{zh?'启用控制权审批':'Require owner approval'}</strong><small>{zh?'默认关闭 · 设置仅影响本房间':'Off by default · applies to this room only'}</small></span><input role="switch" aria-label={zh?'启用控制权审批':'Require owner approval'} type="checkbox" checked={changing??data.enabled} disabled={busy||uncertain||!!error} onChange={e=>setChanging(e.target.checked)}/></label>
-     <p>{data.enabled?(zh?'远程访客必须申请，并由你在这台电脑的页面批准，才能操作对应Pi实例。没有打开本页或未处理申请，不会自动批准。':'Visitors must request control. Only your approval on this computer grants it. Closing or ignoring this page never approves a request.'):(zh?'已连接且有操作权限的访客可直接操作，不需要申请控制权。房间密码、只读角色及会话安全检查仍有效。':'Connected visitors with operator permission can work directly. The room password, read-only roles and session checks still apply.')}</p>
+     <p>{data.enabled?(zh?'访客先申请，你在本机批准后才可操作。未处理申请不会自动同意。':'Visitors request control; you approve here on this computer. Unanswered requests are never approved automatically.'):(zh?'所有通过房间密码验证的访客都可以直接操作 Pi，无需申请。':'Everyone who enters with the room password can operate Pi directly, without requesting control.')}</p>
      {changing!==null&&changing!==data.enabled&&<div className={styles.confirm}>
-      <p>{changing?(zh?'开启后，现有访客的新操作也需要批准。已经运行的任务不会被取消。':'Enabling also requires current visitors to request approval for new actions. Running tasks are not cancelled.'):(zh?'关闭后，所有有操作权限的访客无需审批即可发送任务。已有申请和授权将清空；不会取消运行中的任务。':'Disabling allows all authorized operators to act without approval. Pending requests and grants are cleared; running tasks continue.')}</p>
+      <p>{changing?(zh?'开启后，现有访客的新操作也需要批准。已经运行的任务不会被取消。':'Enabling also requires current visitors to request approval for new actions. Running tasks are not cancelled.'):(zh?'关闭后，所有通过房间密码验证的访客都可直接操作。申请与授权将清空，运行中的任务不受影响。':'Disabling lets everyone in the room operate Pi directly. Requests and grants are cleared; running tasks continue.')}</p>
       <div className={styles.actions}><Button variant="quiet" disabled={busy} onClick={()=>setChanging(null)}>{zh?'取消':'Cancel'}</Button><Button variant="primary" loading={busy} disabled={busy||uncertain} onClick={()=>void run({operation:'configure',revision:data.revision,enabled:changing})}>{zh?'确认修改':'Confirm setting'}</Button></div>
      </div>}
     </section>
@@ -65,11 +67,10 @@ export function RoomControlPanel({owner,control,trigger,onClose}:{owner:AppOwner
      </section>
      <section className={styles.section}><h3>{zh?'当前授权':'Active grants'}</h3>{data.leases.length===0&&<p className={styles.empty}>{zh?'目前无人持有控制权。':'No active grants.'}</p>}
       {data.leases.map(lease=><article className={styles.request} key={lease.approvalId}><strong>{lease.name}</strong><p>{name(lease.hostId)}</p><Button variant="quiet" disabled={busy||uncertain||!!error} onClick={()=>void run({operation:'revoke',hostId:lease.hostId,applicationId:lease.approvalId!,revision:data.revision})}>{zh?'撤销控制权':'Revoke control'}</Button></article>)}
-     </section><p className={styles.footnote}>{zh?'申请90秒未处理会失效。授权不会跨访客断线保留；撤销或到期后必须重新申请。启用时新增/打开独立Pi实例请在本机进行。':'Unanswered requests expire after 90 seconds. Grants do not survive visitor disconnects; revoked or expired grants require a new request. Create or open independent Pi instances locally while approval is enabled.'}</p>
+     </section><details className={styles.rules}><summary>{zh?'审批规则与有效期':'Approval rules and expiry'}</summary><p className={styles.footnote}>{zh?'申请90秒未处理会失效。授权不会跨访客断线保留；撤销或到期后必须重新申请。启用时新增/打开独立Pi实例请在本机进行。':'Unanswered requests expire after 90 seconds. Grants do not survive visitor disconnects; revoked or expired grants require a new request. Create or open independent Pi instances locally while approval is enabled.'}</p></details>
     </>}
    </>}
    {error&&<p role="alert" className={styles.error}>{messages[error]||(zh?'无法刷新本机房间状态，请检查网关。':'Local room state could not be refreshed.')}</p>}
    <Button variant="quiet" disabled={busy} onClick={()=>void run({operation:'status'})}>{zh?'刷新设置与申请':'Refresh settings and requests'}</Button>
-  </div>
- </Drawer>;
+ </div>;
 }

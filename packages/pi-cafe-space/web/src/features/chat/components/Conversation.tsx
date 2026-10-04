@@ -1,4 +1,4 @@
-import { useEffect, useState, type PropsWithChildren } from 'react';
+import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../../components/ui/Controls';
 import { AssistantRuntimeProvider, ThreadPrimitive, MessagePrimitive, useAuiState, type ToolCallMessagePartProps, type DataMessagePartProps, type ReasoningMessagePartProps } from '@assistant-ui/react';
@@ -44,19 +44,22 @@ function Message() {
     {text && <footer className={styles.messageActions}><Button variant="quiet" aria-label={t('copyMessage')} onClick={() => { void navigator.clipboard?.writeText(text).then(() => setCopy('copied'), () => setCopy('copyFailed')); if (!navigator.clipboard) setCopy('copyFailed'); }}><Icon name={copy === 'copied' ? 'check' : 'copy'} />{t('copyMessage')}</Button>{copy && <span role="status">{t(copy)}</span>}</footer>}
   </MessagePrimitive.Root>;
 }
-function Transcript({ readOnly, empty, snapshot, connected }: { readOnly: boolean; empty: boolean; snapshot: SessionSnapshot; connected: boolean }) {
+function Transcript({ readOnly, empty, snapshot, connected, navigation }: { readOnly: boolean; empty: boolean; snapshot: SessionSnapshot; connected: boolean; navigation?: ReactNode }) {
   const labels = useChatLabels();
   return <ThreadPrimitive.Root className={styles.thread}>
     {readOnly && <p className={styles.notice}>{labels.history}</p>}
     {empty && <div className={styles.empty}><Icon name="message" /><h2>{labels.emptyConversation}</h2><p>{labels.emptyConversationHelp}</p></div>}
+    <div className={styles.transcriptArea} data-empty={empty}>
     <div className={styles.messages} data-empty={empty} role="log" aria-label={labels.conversation} aria-live="off">
       <ThreadPrimitive.Messages>{() => <Message />}</ThreadPrimitive.Messages>
+    </div>
+    {navigation && <div className={styles.transcriptNavigation} data-jump-latest>{navigation}</div>}
     </div>
     {!readOnly && <AgentActivity snapshot={snapshot} connected={connected} />}
   </ThreadPrimitive.Root>;
 }
-export function Conversation({ connected = true, ...props }: PiRelayRuntimeOptions & { connected?: boolean }) {
+export function Conversation({ connected = true, navigation, ...props }: PiRelayRuntimeOptions & { connected?: boolean; navigation?: ReactNode }) {
   return <PiRelayRuntimeProvider key={JSON.stringify([scopeKey(props.scope), !!props.readOnly])} {...props}>
-    <CollapseProvider><Transcript readOnly={!!props.readOnly} snapshot={props.snapshot} connected={connected} empty={!props.readOnly && props.snapshot.phase !== 'running' && props.snapshot.phase !== 'waiting_local_ui' && props.snapshot.messages.length === 0 && props.snapshot.tools.length === 0} /></CollapseProvider>
+    <CollapseProvider><Transcript readOnly={!!props.readOnly} snapshot={props.snapshot} connected={connected} navigation={navigation} empty={!props.readOnly && props.snapshot.phase !== 'running' && props.snapshot.phase !== 'waiting_local_ui' && props.snapshot.messages.length === 0 && props.snapshot.tools.length === 0} /></CollapseProvider>
   </PiRelayRuntimeProvider>;
 }

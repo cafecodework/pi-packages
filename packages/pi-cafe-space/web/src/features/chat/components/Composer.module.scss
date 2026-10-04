@@ -1,9 +1,13 @@
 .composer { position: relative; flex: 0 0 auto; min-width: 0; width: 100%; max-width: calc(var(--cafe-transcript-width) + 64px); margin-inline: auto; padding: 12px 28px 16px; }
-.inputShell { gap: 0; border: 1px solid var(--cafe-control-line); border-radius: var(--cafe-radius-panel); background: var(--cafe-surface); box-shadow: var(--cafe-shadow); }
-/* The message and its actions share one surface; focus belongs to that surface. */
-.inputShell:has(textarea:focus-visible) { outline: 2px solid var(--cafe-accent); outline-offset: -1px; }
-.composer textarea:focus-visible { outline: none; box-shadow: none; }
-@media (forced-colors: active) { .inputShell:has(textarea:focus-visible) { outline-color: Highlight; } }
+.inputShell { gap: 0; border: 1px solid var(--cafe-control-line); border-radius: var(--cafe-radius-panel); background: var(--cafe-surface); box-shadow: var(--cafe-shadow); transition: border-color .16s ease, box-shadow .16s ease; }
+/* One rounded focus surface; never layer a square outline over the card. */
+.inputShell[data-focused='true'] { outline: none; border-color: var(--cafe-accent); box-shadow: 0 0 0 3px color-mix(in srgb,var(--cafe-accent) 13%,transparent); }
+.composer textarea, .composer textarea:focus, .composer textarea:focus-visible { outline: none; box-shadow: none; -webkit-appearance: none; appearance: none; }
+@media (forced-colors: active) { .inputShell[data-focused='true'] { outline: 2px solid Highlight; outline-offset: 2px; } }
+.delivery { flex: 0 1 auto; min-width: 0; }
+.delivery > [data-slot='field'] { width: auto; }
+.delivery [role='combobox'] { min-height: 36px; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .inputShell { transition: none; } }
 .composer label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--cafe-muted); }
 .composer textarea { display: block; resize: vertical; min-height: 76px; max-height: min(12rem, 25dvh); width: 100%; color: var(--cafe-ink); background: transparent; border: 0; border-radius: var(--cafe-radius-panel); padding: 16px 18px 8px; font-size: 14px; line-height: 1.7; }
 .navigation { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); z-index: 1; padding-bottom: 8px; }
@@ -25,12 +29,16 @@
 @media (max-width: 767px) { .completions { left: 12px; right: 12px; } }
 .readonly { padding: 12px 20px; color: var(--cafe-muted); font-size: 12px; }
 @media (max-width: 767px) {
-  .composer { padding: 6px 10px max(10px,env(safe-area-inset-bottom)); max-width: 100%; }
+  .composer { padding: 6px 12px max(10px,env(safe-area-inset-bottom)); max-width: 100%; }
   .navigation { left: auto; right: 14px; transform: none; padding-bottom: 8px; }
   .navigation button { width: 44px; min-width: 44px; height: 44px; padding: 12px; font-size: 0; border-radius: 50%; }
   .navigation button svg { width: 18px; height: 18px; }
-  .composer textarea { font-size: 16px; line-height: 1.55; padding: 12px 14px 4px; min-height: 48px; max-height: min(160px,calc(var(--cafe-viewport-height,100dvh) * .25)); resize: none; }
-  .inputShell { border-radius: 16px; box-shadow: none; }
+  .composer textarea { font-size: 16px; line-height: 1.6; padding: 12px 14px 6px; min-height: 48px; max-height: min(160px,calc(var(--cafe-viewport-height,100dvh) * .25)); resize: none; }
+  .inputShell { border-radius: 18px; box-shadow: none; }
+  .inputShell[data-focused='true'] { box-shadow: 0 0 0 3px color-mix(in srgb,var(--cafe-accent) 13%,transparent); }
+  .delivery { flex: 1 1 100%; order: -1; padding: 0 4px 5px; }
+  .delivery [role='combobox'] { width: 100%; max-width: 100%; min-height: 36px; border-color: var(--cafe-line); background: var(--cafe-surface-secondary); }
+  .delivery > [data-slot='field'] { width: 100%; }
   .controls { padding: 4px 8px 8px; gap: 6px; }
   .context { flex: 1 1 0; width: 0; }
   .actions { flex: 0 0 auto; gap: 4px; }

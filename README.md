@@ -70,4 +70,18 @@ OpenAI Fast 模式切换扩展，为支持的模型开启优先响应服务等�
   pi install npm:@juicesharp/rpiv-ask-user-question
   ```
 
+### [`pi-btw`](https://github.com/dbachelder/pi-btw)
+
+支线插话扩展。在不中断当前任务、不污染主会话上下文的前提下，通过 `/btw` 发起独立的临时旁路问答。
+
+- **安装**：
+  ```bash
+  pi install npm:pi-btw
+  ```
+- **用法**：
+  ```bash
+  /btw 这个函数的签名是什么？
+  ```
+
+
 

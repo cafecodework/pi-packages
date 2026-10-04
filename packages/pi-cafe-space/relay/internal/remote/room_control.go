@@ -88,7 +88,7 @@ func(c *coordinator)requestLocked(p Identity,host string)string{
 }
 func(c *coordinator)expireApplicationsLocked()bool{
  changed:=false;now:=c.now().UnixMilli()
- for id,q:=range c.applications{if q.State=="approved"{continue};if q.ExpiresAt>now{continue};changed=true;if q.State=="pending"{c.finishApplicationLocked(id,"expired")}else{delete(c.applications,id)}}
+ for id,q:=range c.applications{if q.State=="approved"{lease,ok:=c.leases[q.Room+"\x00"+q.HostID];if ok&&lease.ApprovalID==id&&lease.ExpiresAt>now{continue};if ok&&lease.ApprovalID==id{delete(c.leases,q.Room+"\x00"+q.HostID)};c.finishApplicationLocked(id,"expired");changed=true;continue};if q.ExpiresAt>now{continue};changed=true;if q.State=="pending"{c.finishApplicationLocked(id,"expired")}else{delete(c.applications,id)}}
  return changed
 }
 func(c *coordinator)applicationsLocked(room,applicant string)[]ControlApplication{
@@ -118,7 +118,7 @@ func(c *coordinator)Decide(room,id string,approve bool)string{
  p,ok:=c.peers[q.Applicant];if !ok||p.Room!=room||p.UserID!=q.UserID||roleRank(p.Role)<2{return "CONTROL_REQUEST_GONE"}
  if !approve{c.finishApplicationLocked(id,"denied");return ""}
  key:=room+"\x00"+q.HostID
- if current,ok:=c.leases[key];ok&&current.ExpiresAt>c.now().UnixMilli(){return "CONTROL_BUSY"}
+ if current,ok:=c.leases[key];ok{if current.ExpiresAt>c.now().UnixMilli(){return "CONTROL_BUSY"};delete(c.leases,key);c.finishApplicationLocked(current.ApprovalID,"expired")}
  if len(c.leases)>=64{return "CONTROL_LIMIT"}
  c.leases[key]=Lease{HostID:q.HostID,Holder:p.ID,UserID:p.UserID,Name:p.Name,ExpiresAt:c.now().Add(leaseDuration).UnixMilli(),ApprovalID:id}
  q.State="approved";q.ExpiresAt=c.leases[key].ExpiresAt;c.applications[id]=q;return ""
