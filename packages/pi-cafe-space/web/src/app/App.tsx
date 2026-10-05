@@ -13,6 +13,7 @@ import { SetupForm } from '../features/auth/SetupForm';
 import setupStyles from '../features/auth/SetupForm.module.scss';
 import { RemoteLogin } from '../features/remote/RemoteLogin';
 import { RoomLanding, RoomLogin } from '../features/remote/RoomEntry';
+import { CafeIdentityMenu, CafeLoginCallback } from '../features/remote/CafeIdentity';
 import { RoomShare } from '../features/remote/RoomShare';
 import { useRoomControlOwner } from '../features/remote/RoomControlPanel';
 import { publicRoomPath } from '../services/remote/roomCrypto';
@@ -151,12 +152,13 @@ function Shell({ owner, defaultRoom, managedSessions }: { owner: AppOwner; defau
   const preferences = <>
     <section className={styles.preferenceGroup}><h3>{t('language')}</h3><nav className={styles.preferenceOptions} aria-label={t('language')}><Button variant="quiet" aria-pressed={i18n.language.startsWith('zh')} onClick={() => void i18n.changeLanguage('zh-CN')}>中文</Button><Button variant="quiet" aria-pressed={!i18n.language.startsWith('zh')} onClick={() => void i18n.changeLanguage('en')}>English</Button></nav></section>
     <section className={styles.preferenceGroup}><Button variant="quiet" onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}><Icon name={theme === 'dark' ? 'sun' : 'moon'} />{t(theme === 'dark' ? 'switchToLight' : 'switchToDark')}</Button></section>
-    <section className={styles.preferenceGroup}><p className={styles.connection} data-status={state.connection.status}><i aria-hidden="true" />{t(`connection.${state.connection.status}`)}</p>{remote.enabled && <RemoteDevicePanel owner={owner} />}{remote.enabled && state.selectedHostId && <RemoteControlBar owner={owner} hostId={state.selectedHostId} available={authenticated} />}{authenticated && owner.roomShare && <Button onClick={event => { openShare(event.currentTarget); }}>{i18n.language.startsWith('zh') ? '分享房间' : 'Share room'}</Button>}{!login && !remote.enabled && <Button variant="quiet" onClick={() => { setPreferencesTrigger(null); owner.logout(); navigate(liveHref); }}><Icon name="logout" />{t('logout')}</Button>}</section>
+    <section className={styles.preferenceGroup}>{owner.publicRoomMode&&<CafeIdentityMenu owner={owner}/>}<p className={styles.connection} data-status={state.connection.status}><i aria-hidden="true" />{t(`connection.${state.connection.status}`)}</p>{remote.enabled && <RemoteDevicePanel owner={owner} />}{remote.enabled && state.selectedHostId && <RemoteControlBar owner={owner} hostId={state.selectedHostId} available={authenticated} />}{authenticated && owner.roomShare && <Button onClick={event => { openShare(event.currentTarget); }}>{i18n.language.startsWith('zh') ? '分享房间' : 'Share room'}</Button>}{!login && !remote.enabled && <Button variant="quiet" onClick={() => { setPreferencesTrigger(null); owner.logout(); navigate(liveHref); }}><Icon name="logout" />{t('logout')}</Button>}</section>
   </>;
   const header = <>
       <div className={styles.brand}><h1>{t('appName')}</h1><span>{t('workspaceLabel')}</span></div>
       {!login && !owner.publicRoomMode && <span className={styles.room} title={t('room')}>{roomId ?? state.connection.roomId}</span>}
       <div className={styles.utilities}>
+        {owner.publicRoomMode&&<CafeIdentityMenu owner={owner}/>}
         <nav className={styles.language} aria-label={t('language')}><Button variant="quiet" aria-pressed={i18n.language.startsWith('zh')} onClick={() => void i18n.changeLanguage('zh-CN')}>中文</Button><Button variant="quiet" aria-pressed={!i18n.language.startsWith('zh')} onClick={() => void i18n.changeLanguage('en')}>English</Button></nav>
         <IconButton label={t(theme === 'dark' ? 'switchToLight' : 'switchToDark')} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></IconButton>
         <span className={styles.connection} role="status" data-status={state.connection.status}><i aria-hidden="true" />{t(`connection.${state.connection.status}`)}</span>
@@ -218,6 +220,7 @@ function OwnedApp({ createOwner }: { createOwner: () => AppOwner }) {
       <SetupForm onRefresh={() => setRetry(value => value + 1)} onComplete={token => { owner.storage.set('token', token); setRetry(value => value + 1); }} />
     </section></div>
   </UiProvider></main>;
+  if (owner.publicRoomMode && ['/auth/complete','/auth/cancelled','/auth/signed-out'].includes(location.pathname)) return <main className={styles.shell} data-theme="dark" data-surface="workspace"><UiProvider><div className={styles.loginStage}><CafeLoginCallback owner={owner}/></div></UiProvider></main>;
   if (owner.publicRoomMode && !publicRoomPath(location.pathname)) return <PublicRoomHome owner={owner} />;
   return <Shell owner={owner} defaultRoom={defaultRoom} managedSessions={managedSessions} />;
 }
@@ -226,7 +229,7 @@ function PublicRoomHome({ owner }: { owner: AppOwner }) {
   useEffect(() => { owner.logout(); }, [owner]);
   return <main className={styles.shell} data-theme="dark" data-surface="workspace"><UiProvider>
     <header className={styles.header}><div className={styles.brand}><h1>Café Space</h1></div><nav className={`${styles.language} ${setupStyles.language}`}><Button variant="quiet" onClick={() => void i18n.changeLanguage('zh-CN')}>中文</Button><Button variant="quiet" onClick={() => void i18n.changeLanguage('en')}>English</Button></nav></header>
-    <div className={`${styles.loginStage} ${setupStyles.stage}`}><RoomLanding /></div>
+    <div className={`${styles.loginStage} ${setupStyles.stage}`}><RoomLanding owner={owner} /></div>
   </UiProvider></main>;
 }
 export function App({ createOwner = defaultFactory }: { createOwner?: () => AppOwner }) {

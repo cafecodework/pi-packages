@@ -102,7 +102,7 @@ func(c *Cloud) Wrap(next http.Handler) http.Handler {
 		case "/api/config":
 			if r.Method!="GET"&&r.Method!="HEAD"{failHTTP(w,405,"METHOD_NOT_ALLOWED");return}
 			if r.Method=="HEAD"{w.WriteHeader(200);return}
-			reply(w,200,map[string]any{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main","remoteAccess":true,"managedSessions":true,"roomAccess":cfg.RoomAccess})
+			reply(w,200,map[string]any{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main","remoteAccess":true,"managedSessions":true,"roomAccess":cfg.RoomAccess,"accountLogin":cfg.RoomAccess&&cfg.AccountIssuer!=""})
 		case "/room/host":c.roomHost(w,r,cfg)
 		case "/room/join":c.roomBrowser(w,r,cfg)
 		case "/api/remote/devices":if cfg.RoomAccess{failHTTP(w,404,"ROOM_LINK_REQUIRED");return};c.devices(w,r,cfg)

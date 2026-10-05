@@ -10,7 +10,7 @@ import (
 const leaseDuration = 30*time.Second
 const visitorReconnectGrace = 5*time.Minute
 
-type Identity struct { ID string `json:"id"`; UserID string `json:"userId"`; Name string `json:"name"`; Room string `json:"room"`; Role string `json:"role"`; Verified bool `json:"-"` }
+type Identity struct { ID string `json:"id"`; UserID string `json:"userId"`; Name string `json:"name"`; Room string `json:"room"`; Role string `json:"role"`; Verified bool `json:"-"`; Kind string `json:"identityKind,omitempty"`; AccountID string `json:"accountId,omitempty"` }
 type Lease struct { HostID string `json:"hostId"`; Holder string `json:"holder"`; UserID string `json:"userId"`; Name string `json:"name"`; ExpiresAt int64 `json:"expiresAt"`; ApprovalID string `json:"approvalId,omitempty"` }
 type Presence struct { Type string `json:"type"`; Self string `json:"self"`; Role string `json:"role"`; Members []Identity `json:"members"`; Leases []Lease `json:"leases"`; ControlPolicy string `json:"controlPolicy,omitempty"`; Applications []ControlApplication `json:"controlRequests,omitempty"` }
 type coordinator struct { mu sync.Mutex; roomPolicies map[string]bool; applications map[string]ControlApplication; peers map[string]Identity; leases map[string]Lease; now func()time.Time }

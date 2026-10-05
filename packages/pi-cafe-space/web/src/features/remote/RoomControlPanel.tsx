@@ -60,7 +60,7 @@ export function RoomControlContent({owner,control}:{owner:AppOwner;control:RoomC
      <section className={styles.section}><h3>{zh?'待审批':'Pending requests'} <span>{pending.length}</span></h3>
       {pending.length===0&&<p className={styles.empty}>{zh?'暂无申请。访客点击申请后会出现在这里。':'No pending requests. Visitor requests will appear here.'}</p>}
       {pending.map(q=><article className={styles.request} key={q.id} data-application-id={q.id}>
-       <header><strong>{q.name}</strong><small>{zh?'申请编号':'Request'} <code>{q.id.slice(0,6)}</code></small></header><p>{zh?'请求操作':'Requests control of'} <b>{name(q.hostId)}</b></p>
+       <header><strong>{q.name}<small>{q.identityKind==='account'?(zh?'Café 账号':'Café account'):(zh?'访客':'Guest')}</small></strong><small>{zh?'申请编号':'Request'} <code>{q.id.slice(0,6)}</code></small></header><p>{zh?'请求操作':'Requests control of'} <b>{name(q.hostId)}</b></p>
        <small>{zh?'批准可发送任务、打断及修改此Pi会话；你可以随时撤销。请与访客核对申请编号。':'Approval allows prompts, interruption and session changes for this Pi. Revoke at any time; verify the request code with the visitor.'}</small>
        <div className={styles.actions}><Button variant="quiet" disabled={busy||uncertain||!!error} onClick={()=>void run({operation:'deny',applicationId:q.id,revision:data.revision})}>{zh?'拒绝':'Deny'}</Button><Button variant="primary" disabled={busy||uncertain||!!error} onClick={()=>void run({operation:'approve',applicationId:q.id,revision:data.revision})}>{zh?'批准':'Approve'}</Button></div>
       </article>)}

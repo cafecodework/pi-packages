@@ -5,6 +5,7 @@ import { createRelayStorage, type RelayStorage } from '../services/relay/storage
 import { createHttpClient, type RelayConfig } from '../services/http/client';
 import { CollabStore, type HostScope } from '../state/CollabStore';
 import { RemoteAccess } from '../services/remote/RemoteAccess';
+import { CafeAccountController } from '../services/remote/cafeAccount';
 import type { RoomProgress } from '../services/remote/RoomSocket';
 import type { RemoteMode } from '../services/remote/RemoteSocket';
 import { managedRequest, type ManagedRequest } from '../services/http/workspace';
@@ -27,6 +28,8 @@ export class AppOwner {
   readonly store: CollabStore;
   readonly gateway: CommandGateway;
   readonly remote: RemoteAccess;
+  readonly account = new CafeAccountController();
+  readonly #accountUnsubscribe: () => void;
   #initialized = false;
   readonly #resume = () => {
     if (this.#disposed || !this.remote.enabled || document.visibilityState === 'hidden') return;
@@ -42,6 +45,12 @@ export class AppOwner {
     this.client = options.client ?? new RelayClient({
       socketFactory: url => this.remote.enabled ? this.remote.createSocket() : browserSocket(url),
       connectTimeoutMs: () => this.remote.enabled ? 30000 : 5000,
+    });
+    this.#accountUnsubscribe = this.account.subscribe(() => {
+      const session=this.remote.accountSession,state=this.account.getSnapshot();
+      if(session&&(state.mode!=='account'||state.status==='ready'&&state.account?.sessionId!==session)) {
+        this.disconnectRemote();this.roomFailure='ROOM_ACCOUNT_LOGIN_REQUIRED';this.store?.notice('ACCOUNT_SESSION_ENDED');
+      }
     });
     this.storage = options.storage ?? createRelayStorage();
     this.#http = options.http ?? createHttpClient();
@@ -85,6 +94,7 @@ export class AppOwner {
     if (this.#disposed) return null;
     this.remote.enable(config.remoteAccess === true);
     this.publicRoomMode = config.roomAccess === true;
+    this.account.enable(this.publicRoomMode && config.accountLogin === true);
     this.roomShare = config.roomShare === true;
     this.roomControl = config.roomControl === true && config.roomAccess !== true && config.remoteAccess !== true;
     if (config.setupRequired) { this.#initialized = false; this.client.stop(); return config; }
@@ -152,7 +162,10 @@ export class AppOwner {
   connectRoomLink(roomKey: string, password: string, connectionPolicy: 'auto' | 'relay-tcp' = 'auto', nickname?: string): void {
     if (this.#disposed || !this.#initialized || !this.publicRoomMode) throw Error('CONFIG_UNAVAILABLE');
     this.client.stop(); this.remote.logout(); this.roomFailure = null; this.roomLastProgress = null; this.#roomHasConnected = false; this.#desiredHost = null;
-    this.remote.prepareRoomLink(roomKey, password, connectionPolicy, nickname);
+    const identity=this.account.getSnapshot();
+    if(identity.enabled&&(identity.mode==='choose'||identity.mode==='account'&&!identity.account))throw Error('ROOM_ACCOUNT_LOGIN_REQUIRED');
+    const account=identity.enabled&&identity.mode==='account'?identity.account??undefined:undefined;
+    this.remote.prepareRoomLink(roomKey, password, connectionPolicy, account?.nickname??nickname, account);
     this.client.start({ token: 'room-session', roomId: 'main', peerId: this.storage.peerId() });
   }
   connectRemote(token: string, deviceId: string, roomId: string, mode: RemoteMode): void {
@@ -169,7 +182,7 @@ export class AppOwner {
   logout(): void { this.roomFailure = null; this.roomLastProgress = null; this.#roomHasConnected = false; this.storage.logout(); this.#desiredHost = null; this.client.stop(); this.remote.logout(); }
   dispose(): void {
     if (this.#disposed) return;
-    this.#disposed = true; this.#cancel.abort(); this.client.stop(); this.gateway.dispose(); this.#unsubscribe(); this.remote.dispose(); this.store.dispose();
+    this.#disposed = true;this.#accountUnsubscribe();this.account.dispose();this.#cancel.abort(); this.client.stop(); this.gateway.dispose(); this.#unsubscribe(); this.remote.dispose(); this.store.dispose();
     if (typeof window !== 'undefined') window.removeEventListener('online', this.#resume);
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.#resume);
   }

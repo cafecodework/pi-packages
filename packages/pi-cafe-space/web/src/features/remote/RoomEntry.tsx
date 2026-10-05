@@ -1,3 +1,4 @@
+import { CafeIdentityChoice, CafeIdentityChip, useCafeAccount } from './CafeIdentity';
 import { savedNickname, validNickname } from '../../services/remote/visitorIdentity';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { RoomStage } from '../../services/remote/RoomSocket';
@@ -11,11 +12,14 @@ import { useCollabStore } from '../../state/useCollabStore';
 import { roomKeyFromInput, roomPasswordValid } from '../../services/remote/roomCrypto';
 import styles from '../auth/SetupForm.module.scss';
 
-export function RoomLanding() {
+export function RoomLanding({owner}:{owner:AppOwner}) {
+  const identity=useCafeAccount(owner);
   const { i18n } = useTranslation(); const zh = i18n.language.startsWith('zh'); const navigate = useNavigate();
   const [link, setLink] = useState(''); const [error, setError] = useState(false);
+  if(identity.enabled&&(identity.mode==='choose'||identity.mode==='account'&&!identity.account))return <section className={styles.card}><CafeIdentityChoice owner={owner} returnPath="/"/></section>;
   return <section className={styles.card} aria-labelledby="room-home-title">
     <p className={styles.eyebrow}>CAFÉ SPACE</p><h2 className={styles.title} id="room-home-title">{zh ? '进入你的房间' : 'Join your room'}</h2>
+    {identity.enabled&&<CafeIdentityChip owner={owner} onSwitch={()=>owner.account.choose('choose')}/>}
     <form className={styles.form} onSubmit={event => {
       event.preventDefault(); const key = roomKeyFromInput(link, window.location.origin);
       if (!key) { setError(true); return; } navigate('/room/' + key);
@@ -31,10 +35,12 @@ export function RoomLanding() {
 export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string }) {
   const { i18n } = useTranslation(); const zh = i18n.language.startsWith('zh');
   const connection = useCollabStore(owner.store, state => state.connection.status);
+  const identity=useCafeAccount(owner);const account=identity.enabled&&identity.mode==='account'?identity.account:null;
   const [password, setPassword] = useState(''); const [show, setShow] = useState(false); const [error, setError] = useState('');
   const [nickname, setNickname] = useState(() => savedNickname(roomKey));
   useEffect(() => { setNickname(savedNickname(roomKey)); }, [roomKey]);
   const [compatible, setCompatible] = useState(false);
+  useEffect(()=>{setPassword('');setError('');},[identity.mode,identity.account?.sessionId]);
   const [copyState, setCopyState] = useState<'idle'|'copying'|'copied'|'fallback'>('idle');
   const [copyFallback, setCopyFallback] = useState('');
   const busy = !['stopped', 'auth-failed'].includes(connection);
@@ -45,6 +51,8 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
   const phases: Record<RoomStage,string> = zh ? { signaling:'连接信令服务',gathering:'检测直连和中继地址','waiting-office':'等待办公电脑应答',identity:'验证房间身份',transport:'建立加密连接',password:'验证房间密码',synchronizing:'同步 Pi 实例',connected:'已连接' } : { signaling:'Connecting to signaling',gathering:'Finding direct and relay routes','waiting-office':'Waiting for the office endpoint',identity:'Verifying room identity',transport:'Establishing encrypted connection',password:'Checking room password',synchronizing:'Synchronizing Pi instances',connected:'Connected' };
   const errors: Record<string, string> = zh ? {
     INVALID_VISITOR_PROFILE: '昵称应为1–24个字符，不含#或控制字符。',
+    ROOM_ACCOUNT_LOGIN_REQUIRED: 'Café 账号登录已失效或发生变化，请重新登录；不会自动切换为访客。',
+    ROOM_ACCOUNT_IDENTITY_FAILED: '办公电脑未能验证 Café 账号身份。房间密码正确也不能跳过身份验证，请核对网关配置。',
     ROOM_VISITOR_IDENTITY_FAILED: '无法验证本浏览器的访客身份，请重新连接；没有恢复任何授权。',
     ROOM_BROWSER_UNSUPPORTED: '当前浏览器缺少必要的 WebRTC 或安全加密能力。请在系统 Safari 或 Chrome 中打开此链接。',
     ROOM_SIGNAL_START_FAILED: '信令连接在创建时失败。下方显示具体初始化步骤；尚未验证密码。',
@@ -73,6 +81,8 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
     ROOM_CONNECTION_TIMEOUT: '连接超时，请确认办公电脑在线，或更换网络重试。',
   } : {
     INVALID_VISITOR_PROFILE: 'Use a nickname of 1–24 characters without # or control characters.',
+    ROOM_ACCOUNT_LOGIN_REQUIRED: 'Your Café login expired or changed. Sign in again; guest access is never selected automatically.',
+    ROOM_ACCOUNT_IDENTITY_FAILED: 'The office computer could not verify your Café identity. Identity verification is separate from the room password.',
     ROOM_VISITOR_IDENTITY_FAILED: 'Could not verify this browser’s visitor identity. Reconnect; no grant was restored.',
     ROOM_BROWSER_UNSUPPORTED: 'This browser lacks required WebRTC or secure cryptography support. Open the link in Safari or Chrome.',
     ROOM_SIGNAL_START_FAILED: 'Signaling failed during construction. The initialization step is shown below; the password has not been checked.',
@@ -109,16 +119,19 @@ export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string
       await navigator.clipboard.writeText(text); setCopyState('copied');
     } catch { setCopyFallback(text); setCopyState('fallback'); }
   };
+  if(identity.enabled&&(identity.mode==='choose'||identity.mode==='account'&&!identity.account))return <section className={styles.card}><p className={styles.eyebrow}>{zh?'加入私人房间':'JOIN A PRIVATE ROOM'}</p><CafeIdentityChoice owner={owner} returnPath={'/room/'+roomKey}/></section>;
   return <section className={styles.card} aria-labelledby="room-password-title">
     <p className={styles.eyebrow}>{zh ? '私人房间' : 'PRIVATE ROOM'}</p><h2 className={styles.title} id="room-password-title">{zh ? '输入房间密码' : 'Enter room password'}</h2>
+    {identity.enabled&&<CafeIdentityChip owner={owner} onSwitch={()=>{owner.logout();owner.account.choose('choose');}}/>}
     <form className={styles.form} onSubmit={event => {
       event.preventDefault(); if (busy) return;
-      if (!validNickname(nickname.trim())) { setError('INVALID_VISITOR_PROFILE'); return; }
+      if (!account&&!validNickname(nickname.trim())) { setError('INVALID_VISITOR_PROFILE'); return; }
       if (!roomPasswordValid(password)) { setError('INVALID_ROOM_CREDENTIALS'); return; }
-      setError(''); setCopyState('idle'); setCopyFallback(''); try { owner.connectRoomLink(roomKey, password, compatible ? 'relay-tcp' : 'auto', nickname.trim()); setPassword(''); } catch { setError('INVALID_ROOM_CREDENTIALS'); }
+      setError(''); setCopyState('idle'); setCopyFallback(''); try { owner.connectRoomLink(roomKey, password, compatible ? 'relay-tcp' : 'auto', nickname.trim()); setPassword(''); } catch (e) { setError(e instanceof Error&&e.message==='ROOM_ACCOUNT_LOGIN_REQUIRED'?e.message:'INVALID_ROOM_CREDENTIALS'); }
     }}>
       <p className={styles.intro}>{zh ? '连接办公电脑上的 Pi。' : 'Connect to Pi on your office computer.'}</p>
-      <div className={styles.field}><Label htmlFor="room-nickname">{zh ? '你的昵称' : 'Your nickname'}</Label><Input id="room-nickname" className={styles.input} value={nickname} maxLength={48} required disabled={busy} autoComplete="nickname" onChange={event => setNickname(event.target.value)} placeholder={zh ? '例如：拿铁' : 'For example: Latte'} /><small>{zh ? '进入后显示为 昵称#ID。同一浏览器刷新保留身份；不会保存房间密码。' : 'Shown as nickname#ID. This browser keeps its identity across reloads; the room password is not saved.'}</small></div>
+      {!account&&<div className={styles.field}><Label htmlFor="room-nickname">{zh ? '你的昵称' : 'Your nickname'}</Label><Input id="room-nickname" className={styles.input} value={nickname} maxLength={48} required disabled={busy} autoComplete="nickname" onChange={event => setNickname(event.target.value)} placeholder={zh ? '例如：拿铁' : 'For example: Latte'} /><small>{zh ? '进入后显示为 昵称#ID。同一浏览器刷新保留身份；不会保存房间密码。' : 'Shown as nickname#ID. This browser keeps its identity across reloads; the room password is not saved.'}</small></div>}
+      {account&&<p className={styles.intro}>{zh?'这里输入房主提供的房间密码，不是 Café 账号密码。':'Enter the password supplied by the room owner, not your Café account password.'}</p>}
       <div className={styles.field}><Label htmlFor="room-password">{zh ? '房间密码' : 'Room password'}</Label><div className={styles.inputWrap}>
         <Input id="room-password" className={styles.input} type={show ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" spellCheck={false} value={password} minLength={6} maxLength={20} required disabled={busy} onChange={event => setPassword(event.target.value)} placeholder={zh ? '6–20 位房间密码' : '6–20 characters'} />
         <Button className={styles.visibility} variant="quiet" disabled={busy} aria-label={zh ? (show ? '隐藏密码' : '显示密码') : (show ? 'Hide password' : 'Show password')} aria-pressed={show} onClick={() => setShow(value => !value)}>{zh ? (show ? '隐藏' : '显示') : (show ? 'Hide' : 'Show')}</Button>

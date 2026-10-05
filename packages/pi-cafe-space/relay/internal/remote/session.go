@@ -23,6 +23,8 @@ type remoteSession struct {
 	roomKey, browserNonce string
 	roomRevision uint64
 	roomVerified, roomAttempted bool
+	accountSubject, accountSession, accountPublicKey string
+	accountUntil, accountChecked time.Time
 	agent *Agent
 	link *wsLink
 	identity Identity
@@ -46,7 +48,7 @@ func newRemoteSession(a *Agent,l *wsLink,p Identity,mode string,ice []ICEServer)
 	now:=time.Now();return &remoteSession{trace:trace,agent:a,link:l,identity:p,mode:mode,ice:ice,created:now,authorizedUntil:now.Add(45*time.Second),in:make(chan []byte,128),out:make(chan []byte,128),stop:make(chan struct{}),selected:make(chan struct{}),hosts:map[string]bool{}}
 }
 func(s *remoteSession) renew(){s.mu.Lock();s.authorizedUntil=time.Now().Add(45*time.Second);s.mu.Unlock()}
-func(s *remoteSession) expired(now time.Time)bool{s.mu.Lock();defer s.mu.Unlock();return now.After(s.authorizedUntil)||s.chosen==""&&now.Sub(s.created)>30*time.Second||s.chosen!=""&&!s.authenticated.Load()&&now.Sub(s.selectedAt)>5*time.Second}
+func(s *remoteSession) expired(now time.Time)bool{s.mu.Lock();defer s.mu.Unlock();return !s.accountUntil.IsZero()&&!now.Before(s.accountUntil)||now.After(s.authorizedUntil)||s.chosen==""&&now.Sub(s.created)>30*time.Second||s.chosen!=""&&!s.authenticated.Load()&&now.Sub(s.selectedAt)>5*time.Second}
 func(s *remoteSession) isTransport(mode string)bool{s.mu.Lock();defer s.mu.Unlock();return !s.closed&&s.chosen==mode}
 func(s *remoteSession) selectTransport(mode string)error{
  s.trace.add("selection","requested")
@@ -82,7 +84,7 @@ func(s *remoteSession) sendJSON(v any)error{b,err:=json.Marshal(v);if err!=nil{r
 func(s *remoteSession) input(b []byte)error{
 	if len(b)==0||len(b)>protocol.MaxFrameBytes||!utf8.Valid(b){return errors.New("invalid remote business frame")}
 	s.mu.Lock();if s.closed||s.chosen==""{s.mu.Unlock();return errClosed}
-	if s.roomKey!=""&&!s.roomVerified&&len(b)>2048{s.mu.Unlock();return errors.New("unauthenticated room frame exceeds limit")}
+	if s.roomKey!=""&&!s.roomVerified&&len(b)>8192{s.mu.Unlock();return errors.New("unauthenticated room frame exceeds limit")}
 	if s.inCount>=128||s.inBytes+len(b)>1024*1024||!s.agent.budget.reserve(len(b)){s.mu.Unlock();return errCapacity}
 	s.inCount++;s.inBytes+=len(b);s.in<-append([]byte(nil),b...);s.mu.Unlock();return nil
 }
@@ -117,10 +119,11 @@ func(s *remoteSession) handle(raw []byte)error{
 	if s.roomKey!="" {
 		s.mu.Lock();verified:=s.roomVerified;s.mu.Unlock()
 		if !verified{return s.roomAuthentication(raw)}
+		s.mu.Lock();accountExpired:=!s.accountUntil.IsZero()&&!time.Now().Before(s.accountUntil);s.mu.Unlock();if accountExpired{return errAccountIdentity}
 		key,revision:=s.agent.room.snapshot();if key!=s.roomKey||revision!=s.roomRevision{return errors.New("room authorization changed")}
 	}
 	var tag struct{Type string `json:"type"`};if json.Unmarshal(raw,&tag)!=nil{return errors.New("invalid JSON")}
-	if s.authenticated.Load(){switch tag.Type{case "remote.control":return s.controlRequest(raw);case "remote.workspace":return s.workspaceRequest(raw)}}
+	if s.authenticated.Load(){switch tag.Type{case "room.account.renew":return s.renewAccount(raw);case "remote.control":return s.controlRequest(raw);case "remote.workspace":return s.workspaceRequest(raw)}}
 	m,err:=protocol.DecodeWire(raw);if err!=nil{return err}
 	if !s.authenticated.Load(){
 		if m["type"]!="hello"||m["peerRole"]!="client"||m["roomId"]!=s.identity.Room{return errors.New("remote client hello required")}

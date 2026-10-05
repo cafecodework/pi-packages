@@ -64,8 +64,8 @@ func(a *Agent)openRoomGuest(l *wsLink,f Frame,registeredKey string)error{
  go s.readPump();go s.writePump();return nil
 }
 func(s *remoteSession)roomAuthentication(raw []byte)error{
- var q struct{Type string `json:"type"`;ID string `json:"id"`;Nonce string `json:"nonce"`;Password string `json:"password"`;Nickname string `json:"nickname,omitempty"`;Visitor *visitorProof `json:"visitor,omitempty"`}
- if len(raw)>2048||strictJSON(raw,&q)!=nil||q.Type!="room.auth"||q.ID!=s.identity.ID||q.Nonce!=s.browserNonce{return errors.New("room authentication required")}
+ var q struct{Type string `json:"type"`;ID string `json:"id"`;Nonce string `json:"nonce"`;Password string `json:"password"`;Nickname string `json:"nickname,omitempty"`;Visitor *visitorProof `json:"visitor,omitempty"`;Account string `json:"account,omitempty"`}
+ if len(raw)>8192||strictJSON(raw,&q)!=nil||q.Account==""&&len(raw)>2048||q.Type!="room.auth"||q.ID!=s.identity.ID||q.Nonce!=s.browserNonce{return errors.New("room authentication required")}
  s.mu.Lock();if s.closed||s.roomAttempted{s.mu.Unlock();return errors.New("one password attempt per connection")};s.roomAttempted=true;s.mu.Unlock()
  if !s.agent.room.verify(q.Password,s.roomKey,s.roomRevision){
   q.Password="";_ = s.sendJSON(map[string]any{"type":"room.denied","code":"ROOM_PASSWORD_REJECTED"})
@@ -73,9 +73,17 @@ func(s *remoteSession)roomAuthentication(raw []byte)error{
  }
  q.Password=""
  identity,verifyErr:=verifiedRoomVisitor(s.identity,s.roomKey,s.browserNonce,q.Nickname,q.Visitor);if verifyErr!=nil{return verifyErr}
+ var account accountClaims
+ if q.Account!="" {
+  if q.Visitor==nil{return errAccountIdentity}
+  account,verifyErr=s.agent.accounts.verify(s.agent.ctx,q.Account,s.roomKey,s.identity.ID,s.browserNonce,q.Visitor.PublicKey)
+  if verifyErr!=nil||account.Name!=q.Nickname {q.Account="";_ = s.sendJSON(map[string]any{"type":"room.denied","code":"ROOM_ACCOUNT_IDENTITY_FAILED"});time.AfterFunc(250*time.Millisecond,func(){s.Close(1008,"Account identity rejected")});return nil}
+  identity=accountIdentity(identity,account,s.roomKey)
+ }
+ q.Account=""
  connection,err:=s.agent.backend.Hub.Join(s,"room-guest:"+s.identity.ID);if err!=nil{return err}
- s.mu.Lock();if s.closed{s.mu.Unlock();s.agent.backend.Hub.Leave(connection);return errClosed};s.connection=connection;s.identity.UserID=identity.UserID;s.identity.Name=identity.Name;s.identity.Verified=identity.Verified;s.roomVerified=true;s.mu.Unlock()
- return s.sendJSON(map[string]any{"type":"room.authenticated","id":s.identity.ID,"roomKey":s.roomKey,"deviceId":"room","roomId":"main","userId":s.identity.UserID,"visitorName":s.identity.Name,"name":s.agent.cfg.DeviceName,"role":s.identity.Role,"managed":s.agent.cfg.RoomManagement&&s.agent.backend.Manager!=nil})
+ s.mu.Lock();if s.closed{s.mu.Unlock();s.agent.backend.Hub.Leave(connection);return errClosed};s.connection=connection;s.identity=identity;if account.Subject!=""{s.accountSubject=account.Subject;s.accountSession=account.Session;s.accountPublicKey=account.PublicKey;s.accountUntil=time.Unix(account.Expires,0);s.accountChecked=time.Now()};s.roomVerified=true;s.mu.Unlock()
+ return s.sendJSON(map[string]any{"type":"room.authenticated","id":s.identity.ID,"roomKey":s.roomKey,"deviceId":"room","roomId":"main","userId":s.identity.UserID,"visitorName":s.identity.Name,"identityKind":s.identity.Kind,"accountId":s.identity.AccountID,"name":s.agent.cfg.DeviceName,"role":s.identity.Role,"managed":s.agent.cfg.RoomManagement&&s.agent.backend.Manager!=nil})
 }
 func(a *Agent)invalidateRoom(){
  a.mu.Lock();link:=a.link;peers:=make([]*remoteSession,0,len(a.sessions));for _,s:=range a.sessions{peers=append(peers,s)};a.mu.Unlock()

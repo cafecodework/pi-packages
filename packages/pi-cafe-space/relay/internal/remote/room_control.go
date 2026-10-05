@@ -21,6 +21,7 @@ type ControlApplication struct {
  Applicant string `json:"applicant"`
  UserID string `json:"userId"`
  Name string `json:"name"`
+ IdentityKind string `json:"identityKind,omitempty"`
  Room string `json:"room"`
  State string `json:"state"`
  CreatedAt int64 `json:"createdAt"`
@@ -89,7 +90,7 @@ func(c *coordinator)requestLocked(p Identity,host string)string{
  if len(c.applications)>=controlRequestLimit||pending>=8{return "CONTROL_LIMIT"}
  id,err:=NewToken();if err!=nil{return "CONTROL_UNAVAILABLE"}
  if c.applications==nil{c.applications=map[string]ControlApplication{}}
- now:=c.now();c.applications[id]=ControlApplication{ID:id,HostID:host,Applicant:p.ID,UserID:p.UserID,Name:p.Name,Room:p.Room,State:"pending",CreatedAt:now.UnixMilli(),ExpiresAt:now.Add(controlRequestLifetime).UnixMilli()}
+ now:=c.now();c.applications[id]=ControlApplication{ID:id,HostID:host,Applicant:p.ID,UserID:p.UserID,Name:p.Name,IdentityKind:p.Kind,Room:p.Room,State:"pending",CreatedAt:now.UnixMilli(),ExpiresAt:now.Add(controlRequestLifetime).UnixMilli()}
  return ""
 }
 func(c *coordinator)expireApplicationsLocked()bool{

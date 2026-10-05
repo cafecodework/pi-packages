@@ -60,6 +60,7 @@ type TURNConfig struct {
 	TTLSeconds int `json:"ttlSeconds,omitempty"`
 }
 type Config struct {
+	AccountIssuer string `json:"accountIssuer,omitempty"`
 	RoomAccess bool `json:"roomAccess,omitempty"`
 	RoomIdentityFile string `json:"roomIdentityFile,omitempty"`
 	RoomManagement bool `json:"roomManagement,omitempty"`
@@ -121,6 +122,7 @@ func validateICE(servers []ICEServer) error {
 	return nil
 }
 func (c Config) Validate() error {
+	if c.AccountIssuer!="" { if c.AccountIssuer!=strings.TrimRight(c.PublicOrigin,"/")+"/api/identity" || !secureURL(c.AccountIssuer,"/api/identity",false) { return errors.New("account identity issuer must match the configured public origin") } }
 	if c.RoomManagement && (c.Mode!="device" || c.RoomIdentityFile=="") { return errors.New("room process management requires explicit office room mode") }
 	if err := validateICE(c.ICEServers); err != nil { return err }
 	if c.TURN != nil {

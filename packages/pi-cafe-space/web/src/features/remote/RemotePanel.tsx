@@ -20,6 +20,7 @@ export function RemoteDevicePanel({owner}:{owner:AppOwner}) {
     <div className={styles.row}><Icon name="hosts"/><strong>{remote.deviceName??remote.deviceId}</strong></div>
     <div className={styles.row}><small>{route}</small><small>{remote.info?(zh?({viewer:'只读',operator:'可操作',admin:'管理员'}[remote.info.role]):remote.info.role):''}</small></div>
     {remote.visitorName && <p data-visitor-name>{zh?'你：':'You: '}{remote.visitorName}</p>}
+    {remote.visitorName && <small data-account-source>{remote.visitorKind==='account'?(zh?'Café 账号 · 已验证身份':'Café account · verified identity'):(zh?'访客身份':'Guest identity')}</small>}
     {remote.visitorName && remote.visitorPersistent===false && <p role="status" className={styles.error}>{zh?'此浏览器未能保存身份，刷新后可能需要重新申请。':'This browser could not save its identity; reloading may require approval again.'}</p>}
     <Button variant="quiet" onClick={()=>owner.disconnectRemote()}>{owner.publicRoomMode?(zh?'离开房间':'Leave room'):(zh?'切换电脑':'Switch computer')}</Button>
     {remote.members.length>0&&<details><summary>{zh?'在线协作者':'Online collaborators'} · {remote.members.length}</summary><ul>{remote.members.map(member=><li key={member.id}><span>{member.name}{member.id===remote.info?.id?(zh?'（此设备）':' (this device)'):''}</span><small>{zh?({viewer:'只读',operator:'可操作',admin:'管理员'}[member.role]):member.role}</small></li>)}</ul></details>}

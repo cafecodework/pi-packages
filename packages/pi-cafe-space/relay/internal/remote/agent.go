@@ -17,6 +17,7 @@ type ManagerPort interface { Execute(managed.Request)(any,string) }
 type AgentBackend struct { Hub *hub.Hub; ClientToken string; HostToken string; Manager ManagerPort }
 
 type Agent struct {
+	accounts *accountVerifier
 	roomPolicyMu sync.RWMutex
 	roomControl *roomControlSettings
 	rtcDiagnostics rtcDiagnostics
@@ -43,10 +44,11 @@ func NewAgent(cfg Config,backend AgentBackend)(*Agent,error){
 	var settings *roomControlSettings
 	if owner!=nil{var err error;settings,err=loadRoomControlSettings(cfg.RoomIdentityFile);if err!=nil{return nil,err};control.SetRoomPolicy("main",settings.snapshot().Enabled)}
 	ctx,cancel:=context.WithCancel(context.Background())
-	return &Agent{roomControl:settings,room:owner,cfg:cfg,backend:backend,ctx:ctx,cancel:cancel,sessions:map[string]*remoteSession{},control:control,budget:byteBudget{limit:32*1024*1024},done:make(chan struct{})},nil
+	return &Agent{accounts:newAccountVerifier(cfg.AccountIssuer),roomControl:settings,room:owner,cfg:cfg,backend:backend,ctx:ctx,cancel:cancel,sessions:map[string]*remoteSession{},control:control,budget:byteBudget{limit:32*1024*1024},done:make(chan struct{})},nil
 }
 func(a *Agent) Start(parent context.Context){a.start.Do(func(){a.mu.Lock();a.started=true;a.mu.Unlock();go func(){select{case<-parent.Done():a.Close();case<-a.ctx.Done():}}();go a.maintain();go a.run()})}
 func(a *Agent) Close(){
+	if a.accounts!=nil{a.accounts.client.CloseIdleConnections()}
 	a.cancel();a.mu.Lock();l:=a.link;peers:=make([]*remoteSession,0,len(a.sessions));for _,s:=range a.sessions{peers=append(peers,s)};a.mu.Unlock()
 	if l!=nil{l.Close()};for _,s:=range peers{s.Close(1001,"Device connection closed")}
 }

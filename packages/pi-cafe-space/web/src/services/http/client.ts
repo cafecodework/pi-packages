@@ -6,6 +6,7 @@ export interface RelayConfig {
     managedSessions?: boolean;
     remoteAccess?: boolean;
     roomAccess?: boolean;
+    accountLogin?: boolean;
     roomShare?: boolean;
     roomControl?: boolean;
     setupRequired?: boolean;
@@ -24,7 +25,7 @@ export function createHttpClient() {
     }
     return {
         async config(signal?: AbortSignal): Promise<RelayConfig> { const d = await get('/api/config', signal); if (d.protocolVersion !== 1 || d.wsPath !== '/ws' || typeof d.defaultRoom !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(d.defaultRoom))
-            throw new Error('Invalid relay config'); return { protocolVersion: 1, wsPath: '/ws', defaultRoom: d.defaultRoom, ...(d.managedSessions === true ? { managedSessions: true } : {}), ...(d.remoteAccess === true ? { remoteAccess: true } : {}), ...(d.setupRequired === true ? { setupRequired: true } : {}), ...(d.roomAccess === true ? { roomAccess: true } : {}), ...(d.roomShare === true ? { roomShare: true } : {}), ...(d.roomControl === true ? { roomControl: true } : {}) }; },
+            throw new Error('Invalid relay config'); return { protocolVersion: 1, wsPath: '/ws', defaultRoom: d.defaultRoom, ...(d.managedSessions === true ? { managedSessions: true } : {}), ...(d.remoteAccess === true ? { remoteAccess: true } : {}), ...(d.setupRequired === true ? { setupRequired: true } : {}), ...(d.roomAccess === true ? { roomAccess: true } : {}), ...(d.accountLogin === true ? { accountLogin: true } : {}), ...(d.roomShare === true ? { roomShare: true } : {}), ...(d.roomControl === true ? { roomControl: true } : {}) }; },
         async health(signal?: AbortSignal): Promise<boolean> { const d = await get('/healthz', signal); if (d.ok !== true || d.protocolVersion !== 1)
             throw new Error('Invalid relay health'); return true; },
     };

@@ -1,3 +1,4 @@
+import { requestAccountAttestation, type CafeAccount } from './cafeAccount';
 import { visitorIdentity, visitorProof, validNickname, type VisitorIdentity } from './visitorIdentity';
 import type { SocketLike } from '../relay/RelayClient';
 import type { RemoteInfo, RemoteRoute } from './RemoteSocket';
@@ -10,7 +11,7 @@ import { roomHash, roomNonce, roomPasswordValid, validRoomKey, verifyRoomAnswer 
 export type RoomStage = 'signaling' | 'gathering' | 'waiting-office' | 'identity' | 'transport' | 'password' | 'synchronizing' | 'connected';
 export interface RoomProgress { stage: RoomStage; localRelay: boolean; remoteRelay: boolean; iceErrorCode: number | null; signalCloseCode: number | null; initialization?: RoomInitDiagnostic; transport?: RoomTransportDiagnostic; policy?: RoomConnectionPolicy }
 export interface RoomSocketOptions {
-  nickname?: string; onVisitor?: (name: string, persistent: boolean) => void;
+  nickname?: string; account?: CafeAccount; onVisitor?: (name: string, persistent: boolean, kind?: 'account' | 'guest') => void;
   roomKey: string; password: string; origin?: string; connectionPolicy?: RoomConnectionPolicy;
   socketFactory?: (url: string) => WebSocket;
   peerFactory?: (configuration: RTCConfiguration) => RTCPeerConnection;
@@ -68,6 +69,9 @@ export class RoomSocket implements SocketLike {
     }
   }
   #profile: Promise<VisitorIdentity> | null = null; #proof: Awaited<ReturnType<typeof visitorProof>> | null = null; #persistent = false;
+  #accountProof: Awaited<ReturnType<typeof requestAccountAttestation>> | null = null;
+  #accountPending: Promise<void> | null = null; #accountTimer: ReturnType<typeof setTimeout> | undefined;
+  #effectiveNickname = ''; #accountRenewing = false; #accountUpdated = 0;
   #password: string; #id = ''; #offerHash = ''; #answerReceived = false;
   #pc: RTCPeerConnection | null = null; #dc: RTCDataChannel | null = null;
   #requested = false; #selected = false; #verified = false; #closed = false;
@@ -86,7 +90,8 @@ export class RoomSocket implements SocketLike {
       return value;
     });
     const { password, ...safe } = options; this.#options = safe; this.#password = password;
-    if(options.nickname !== undefined) { if(!validNickname(options.nickname))throw Error('INVALID_VISITOR_PROFILE'); this.#profile=visitorIdentity(options.roomKey); void this.#profile.catch(()=>{}); }
+    const nickname = options.account?.nickname ?? options.nickname;
+    if(nickname !== undefined) { if(!validNickname(nickname))throw Error('INVALID_VISITOR_PROFILE'); this.#effectiveNickname=nickname;this.#profile=visitorIdentity(options.roomKey); void this.#profile.catch(()=>{}); }
     this.#ws = roomInitializationStep('websocket', () => (options.socketFactory ?? (url => new WebSocket(url)))(origin.href));
     this.#timer = setTimeout(() => { this.#capture('timeout'); this.#fail('ROOM_CONNECTION_TIMEOUT'); }, 28000);
     this.#ws.onopen = () => { this.#report({ stage: 'signaling' }); try { this.#signal({ type: 'room_connect', roomKey: options.roomKey, nonce: this.#nonce }); } catch { this.#fail('ROOM_SIGNAL_UNAVAILABLE'); } };
@@ -109,6 +114,7 @@ export class RoomSocket implements SocketLike {
     if (frame.type === 'room_opened') {
       if (this.#id || !identifier(frame.id) || frame.roomKey !== this.#options.roomKey || frame.nonce !== this.#nonce || frame.webRTC !== true) throw Error('ROOM_IDENTITY_FAILED');
       this.#id = frame.id;
+      if(this.#options.account){this.#accountPending=this.#prepareAccount();void this.#accountPending.catch(()=>{});}
       this.#report({ stage: 'gathering' });
       void this.#start(ice(frame.iceServers)).catch(error => this.#fail(error instanceof Error && ['ROOM_ICE_NO_CANDIDATE','ROOM_TCP_RELAY_UNAVAILABLE'].includes(error.message) ? error.message : 'ROOM_WEBRTC_UNAVAILABLE')); return;
     }
@@ -123,15 +129,28 @@ export class RoomSocket implements SocketLike {
       if (!this.#requested || this.#selected || frame.mode !== 'webrtc' || this.#dc?.readyState !== 'open') throw Error('INVALID_ROOM_TRANSPORT');
       this.#selected = true;
       this.#report({ stage: 'password' });
-      void this.#authenticate().catch(() => this.#fail('ROOM_VISITOR_IDENTITY_FAILED')); return;
+      void this.#authenticate().catch(() => this.#fail(this.#options.account ? 'ROOM_ACCOUNT_LOGIN_REQUIRED' : 'ROOM_VISITOR_IDENTITY_FAILED')); return;
     }
     if (frame.type === 'signal_error') { this.#fail('ROOM_WEBRTC_UNAVAILABLE'); return; }
     throw Error('INVALID_ROOM_SIGNAL');
   }
+  async #prepareAccount(): Promise<void> {
+    const profile=await this.#profile!,account=this.#options.account!;
+    const proof=await requestAccountAttestation(account,this.#options.roomKey,this.#id,this.#nonce,profile.publicKey,this.#cancel.signal);
+    if(this.#closed)return;this.#accountProof=proof;this.#effectiveNickname=proof.identity.nickname;this.#accountUpdated=Date.now();
+  }
+  async #renewAccount(): Promise<void> {
+    if(this.#closed||!this.#verified||!this.#options.account||this.#accountRenewing)return;
+    this.#accountRenewing=true;
+    try{await this.#prepareAccount();if(this.#closed||!this.#accountProof)return;this.#enqueue(JSON.stringify({type:'room.account.renew',assertion:this.#accountProof.assertion}));this.#accountTimer=setTimeout(()=>void this.#renewAccount(),20000);}
+    catch(error){if(this.#closed)return;const code=error instanceof Error?error.message:'';if(['ACCOUNT_LOGIN_REQUIRED','ACCOUNT_IDENTITY_CHANGED'].includes(code)||!this.#accountProof||this.#accountProof.expiresAt<=Date.now()+5000){this.#fail('ROOM_ACCOUNT_LOGIN_REQUIRED');}else this.#accountTimer=setTimeout(()=>void this.#renewAccount(),3000);}
+    finally{this.#accountRenewing=false;}
+  }
   async #authenticate(): Promise<void> {
-    if(this.#profile){const profile=await this.#profile;this.#proof=await visitorProof(profile,this.#options.roomKey,this.#id,this.#nonce,this.#options.nickname!);this.#persistent=profile.persistent;}
+    if(this.#accountPending)await this.#accountPending;
+    if(this.#profile){const profile=await this.#profile;this.#proof=await visitorProof(profile,this.#options.roomKey,this.#id,this.#nonce,this.#effectiveNickname);this.#persistent=profile.persistent;}
     if(this.#closed)return;
-    this.#enqueue(JSON.stringify({type:'room.auth',id:this.#id,nonce:this.#nonce,password:this.#password,...this.#proof?{nickname:this.#options.nickname,visitor:{publicKey:this.#proof.publicKey,signature:this.#proof.signature}}:{}}));
+    this.#enqueue(JSON.stringify({type:'room.auth',id:this.#id,nonce:this.#nonce,password:this.#password,...this.#proof?{nickname:this.#effectiveNickname,visitor:{publicKey:this.#proof.publicKey,signature:this.#proof.signature}}:{},...this.#accountProof?{account:this.#accountProof.assertion}:{}}));
     this.#password='';
   }
   async #answer(sdp: string, signature: string): Promise<void> {
@@ -179,12 +198,15 @@ export class RoomSocket implements SocketLike {
     const raw = decoder.decode(bytes), value: unknown = JSON.parse(raw);
     if (!object(value) || typeof value.type !== 'string') throw Error('INVALID_ROOM_DATA');
     if (!this.#verified) {
-      if (value.type === 'room.denied') { this.#fail('ROOM_PASSWORD_REJECTED'); return; }
-      if (value.type !== 'room.authenticated' || value.id !== this.#id || value.roomKey !== this.#options.roomKey || value.deviceId !== 'room' || value.roomId !== 'main' || value.userId !== (this.#proof?.userId ?? 'guest-' + this.#id) || value.role !== 'operator' || typeof value.name !== 'string' || !value.name || value.name.length > 128 || typeof value.managed !== 'boolean') throw Error('INVALID_ROOM_IDENTITY');
-      if(this.#proof && value.visitorName !== this.#proof.displayName) throw Error('INVALID_ROOM_IDENTITY');
+      if (value.type === 'room.denied') { this.#fail(value.code==='ROOM_ACCOUNT_IDENTITY_FAILED'?'ROOM_ACCOUNT_IDENTITY_FAILED':'ROOM_PASSWORD_REJECTED'); return; }
+      if (value.type !== 'room.authenticated' || value.id !== this.#id || value.roomKey !== this.#options.roomKey || value.deviceId !== 'room' || value.roomId !== 'main' || value.userId !== (this.#accountProof?.userId ?? this.#proof?.userId ?? 'guest-' + this.#id) || value.role !== 'operator' || typeof value.name !== 'string' || !value.name || value.name.length > 128 || typeof value.managed !== 'boolean') throw Error('INVALID_ROOM_IDENTITY');
+      if(this.#proof && value.visitorName !== (this.#accountProof?.identity.displayName??this.#proof.displayName)) throw Error('INVALID_ROOM_IDENTITY');
+      if(this.#options.account&&(!this.#accountProof||value.identityKind!=='account'||value.accountId!==this.#accountProof.identity.accountId))throw Error('INVALID_ROOM_IDENTITY');
+      if(!this.#options.account&&value.identityKind==='account')throw Error('INVALID_ROOM_IDENTITY');
       this.#verified = true; clearTimeout(this.#timer); this.#report({ stage: 'synchronizing' });
-      this.#options.onInfo?.({ id: this.#id, deviceId: 'room', roomId: 'main', userId: this.#proof?.userId ?? 'guest-' + this.#id, name: value.name, role: 'operator', managed: value.managed });
-      if(this.#proof)this.#options.onVisitor?.(this.#proof.displayName,this.#persistent);
+      this.#options.onInfo?.({ id: this.#id, deviceId: 'room', roomId: 'main', userId: this.#accountProof?.userId ?? this.#proof?.userId ?? 'guest-' + this.#id, name: value.name, role: 'operator', managed: value.managed });
+      if(this.#proof)this.#options.onVisitor?.(this.#accountProof?.identity.displayName??this.#proof.displayName,this.#persistent,this.#accountProof?'account':'guest');
+      if(this.#accountProof)this.#accountTimer=setTimeout(()=>void this.#renewAccount(),20000);
       this.#options.onRoute?.('webrtc'); this.onopen?.(); void this.#route(); return;
     }
     if (value.type === 'remote.presence' || value.type === 'remote.result') this.#options.onAuxiliary?.(value);
@@ -237,7 +259,7 @@ export class RoomSocket implements SocketLike {
     } catch { /* The generic WebRTC label remains accurate. */ }
   }
   #dispose(): void {
-    this.#closed = true; this.#password = ''; this.#cancel.abort(); clearTimeout(this.#timer); clearTimeout(this.#assemblyTimer);
+    this.#closed = true; this.#password = ''; clearTimeout(this.#accountTimer);this.#accountProof=null;this.#cancel.abort(); clearTimeout(this.#timer); clearTimeout(this.#assemblyTimer);
     this.#queue.length = 0; this.#queuedBytes = 0; this.#inflight = 0;
     this.#ws.onopen = null; this.#ws.onmessage = null; this.#ws.onerror = null; this.#ws.onclose = null;
     if (this.#dc) { this.#dc.onopen = null; this.#dc.onmessage = null; this.#dc.onclose = null; this.#dc.onerror = null; }

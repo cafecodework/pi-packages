@@ -4,7 +4,23 @@
 
 使用既有服务器 `152.53.90.186`，SSH端口 `2012`、账户 `root`；域名为 `space.cafecode.work`，用户已在Cloudflare设置，服务器已有Caddy。要求用Docker部署云端Café Space，复用既有Caddy而不是覆盖其他站点。手机、笔记本希望同网、异地和蜂窝均可访问。密码不保存在此文档、源码或部署文件中。
 
-## 当前选择器更新：本机完成，云端切换受阻
+## 当前运行版本：Café统一账号登录已上线
+
+2026-10-05按用户要求直接完成测试环境代码发布，不等待真实账号手动验收。主站SSO单独提交`79ccaaa1ad8259aedfea6630c94bfd014351f717`已推送至`Shirtiny/edel-garden/main`；Space的SSO及本记录同批提交，具体版本查看当前Git记录。运行服务仍是下述已上线版本，提交不会代替线上核验，也不需要为相同字节重复重启。主站其余52个修改文件未夹带、未覆盖，详情见CAFE_SSO.md末尾发布记录。
+
+主站www.cafecode.work复用原账号登录/2FA，Space首次进入可选择Café账号或访客，扫码登录完成或取消都返回原房间。账号登录不代替房间密码、不提升为房主，也不自动继承其他设备的控制权。完整行为、安全边界、验收和回退记录见[CAFE_SSO.md](CAFE_SSO.md)。
+
+本机与cloud均为`0.1.0-cafe-sso-20261004`，JS`assets/index-O6Lt3U16.js`、CSS`assets/index-pSHAdXQk.css`。两端仅增加固定`accountIssuer=https://space.cafecode.work/api/identity`，原房间密码、身份与审批选择保持；Pi扩展登记和模型配置未改，不需要/reload。自定义思考菜单已随此版本在公共网页生效，下面此前发布受阻仅为历史记录。
+
+主站新增独立容器edel-garden-identity，原项目`/opt/stacks/edel-garden/services/identity`，Compose在deploy/identity。它只监听127.0.0.1:20124，使用Node24.21.0 LTS固定镜像和私有加密会话存储。主站Control/Gateway/数据库与TURN没有重启；Caddy只平滑reload目标路由。实际主站新入口JS为index-DXT-MdS7.js，静态目录`/opt/stacks/caddy/config/cafe-console/cafe-sso-20261004`。
+
+当前Caddy SHA`071cc7d4c30c732f64cf2f6ed5c1aa0455a585dbc218fd29f56eae1f54eaafc0`；Space Compose SHA`72c4b519be0023eb44863a93a4e75c23314f7fbeb09fb3fde4fac6a8eca04f77`，cloud配置SHA`5515d231648aa6459bb19bce532a8e067caa48d5ef20c96528c613cca8cff89a`。Space回执cafe-sso-deployment.json，备份backups/before-cafe-sso-20261004；主站备份data/sso-backups/cafe-sso-20261004。配置原子替换曾遗漏65532所有权，造成短时cloud不可读，已按日志恢复65532:65532和0400后重新部署并完成公网检查；回退同样必须保留所有者，详细经过留在CAFE_SSO.md。
+
+10项实际OIDC/存储测试在LTS镜像中通过、236项Space网页及Go完整并发测试通过。实际主站React/标准OP-RP/真实Go房间的9组完整联调通过（主站账户API为合成测试）；真正公网登录页/取消返回/访客房间5组通过。未代替用户登录真实主站账号，未产生真实模型请求。登录后真实账户/2FA可以由用户首次体验确认，不能将匿名公网检查说成真实账户已登录。
+
+最终44文件包`.refactor/release/pack-m1smMe/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`e54ac493203d6fd4c9a29a37ed1afcd1ee698cc2b0e9ef3f4bce001c88b15bcd`。本机启动备份before-cafe-sso.plist，配置备份before-cafe-sso-room-device.json；源码已落入两个原项目，主站其他未提交变更未覆盖。
+
+## 历史选择器更新：当时本机完成，云端切换受阻
 
 本机网关已切换到`~/.local/share/pi-cafe-space/0.1.0-custom-select-20261004`，思考强度恢复Café自定义菜单。实际JS`assets/index-_L3j_9_J.js`，CSS仍`assets/index-gezFmgl6.css`。只切换网页打包版本，扩展和协议运行文件与pi-owner版逐字节一致，Pi登记保持原pi-owner路径；models.json、settings.json、房间身份/密码/审批配置均未改。本次选择器更新只需刷新本机网页，不需要重新加载Pi。
 
