@@ -2,11 +2,31 @@
 
 ## Packages
 
+- [`pi-jev-router`](./packages/pi-jev-router) — 根据 Jev 分类结果在 Cafe Astra、Sol、Luna 模型间路由请求，并为每个模型设定思考强度。
 - [`@cafecodework/pi-cafe-space`](./packages/pi-cafe-space) — 让原生 Pi CLI 与 Web/PWA 实时共享同一个活跃会话，并提供受限文件浏览和历史会话查看。
 
 - [`@cafecodework/pi-context`](./packages/pi-context) — 提供 `/context` 命令，显示上下文窗口使用量和分类估算。
 - [`@cafecodework/pi-subagent`](./packages/pi-subagent) — 提供 `subagent` 工具，在隔离的 Pi 子进程中执行独立任务。
 - [`@cafecodework/pi-theme-cafecode`](./packages/pi-theme-cafecode) — Claude 风格的 Pi 主题和界面扩展。
+
+## 推荐配置
+
+### 启用 Pi 内置 Codemode（Pi 0.99.0+）
+
+推荐启用 `codemode`，让模型在 JavaScript 沙箱中编排工具调用、并行执行独立任务，并过滤大段结果。无需额外安装扩展，也无需配置 MCP。
+
+在全局 `~/.pi/agent/settings.json` 中添加：
+
+```json
+{
+  "defaultTools": ["+codemode"]
+}
+```
+
+- 将此字段合并到现有配置，不要覆盖整个文件。如果已有 `defaultTools` 列表，在列表末尾追加 `"+codemode"`，保留原有工具。
+- 默认模式为 `on`，原有工具仍可直接调用，不必设置 `codemode.mode`。
+- 重启 Pi 后生效。项目级 `defaultTools` 或启动参数 `--tools` 若覆盖全局选择，也需要包含 `codemode`。
+- 关闭时删除新增的 `"+codemode"` 条目；若 MCP 自动启用了它，还需在 `mcp.json` 顶层设置 `"autoEnableCodemode": false`。
 
 ## 推荐包
 

@@ -45,6 +45,14 @@ pi install C:\path\to\pi-packages\packages\pi-theme-cafecode
 /cc-spinner
 ```
 
+搭配仓库的 `pi-jev-router` 时，spinner 会在思考强度旁显示本次路由的模型，例如：
+
+```text
+Ebbing… (2m 15s · ↓ 3.9k tokens · thinking with xhigh effort · cafe/gpt-6-astra)
+```
+
+思考强度来自路由结果，不是 `jev/auto` 的选中值；窄终端优先保留模型名称，缩减时间和 token 信息。
+
 主题资源位于 `theme/`，界面扩展位于 `extension/`，后续修改这两个目录即可继续定制。
 
 ## 开发
@@ -52,6 +60,8 @@ pi install C:\path\to\pi-packages\packages\pi-theme-cafecode
 ```bash
 npm install
 npm run typecheck
+# 在仓库根目录运行主题与路由联动的回归测试（不调用外部模型）：
+node --test packages/pi-theme-cafecode/test/spinner.test.mjs
 ```
 
 ## 许可

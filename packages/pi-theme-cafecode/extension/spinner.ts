@@ -18,6 +18,7 @@
  * picked up immediately (no burn-in) and we own every color span.
  */
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { fg as paletteFg, resolvePalette } from "./palette.js";
 
 // CC Spinner/utils.ts getDefaultCharacters(): Ghostty renders ✽ slightly offset,
@@ -113,6 +114,8 @@ export interface SpinnerFrameState {
 	thinkingStatus?: ThinkingStatus;
 	/** CC getEffortSuffix (effort.ts:188): ` with high effort`, "" when unset. */
 	effortSuffix?: string;
+	/** Physical provider/model from the active Jev route, not the virtual selection. */
+	modelLabel?: string;
 	/** How long the current thinking block has been open — drives the
 	 *  "almost done thinking" wording on long thinks. */
 	thinkingElapsedMs?: number;
@@ -212,7 +215,8 @@ export function thinkingWording(blockElapsedMs: number): string {
  * downstream tokens, thinking status LAST. No `esc to interrupt` — CC's byline
  * only carries that in the teammate branch. Width gating follows CC:176-196:
  * thinking survives narrowing first (falling back to the bare word `thinking`),
- * then the timer, then tokens; the verb is never touched. A thinking-only
+ * then the timer, then tokens; the verb is never touched. When routed, reserve
+ * space for the physical model first, so it isn't lost behind token counts. A thinking-only
  * byline renders `(thinking)` in the glow color (CC:193,210-211).
  */
 export function buildSpinnerLine(state: SpinnerFrameState, paint: SpinnerPaint): string {
@@ -245,7 +249,11 @@ export function buildSpinnerLine(state: SpinnerFrameState, paint: SpinnerPaint):
 	// Progressive width gating (CC:176-196). `2 + messageWidth` = glyph+space+verb;
 	// CC reserves 5 more for parens/margin. SEP is " · ".
 	const SEP = 3;
-	const availableSpace = state.columns - (2 + messageWidth) - 5;
+	const bylineSpace = state.columns - (2 + messageWidth) - 5;
+	const modelText = state.modelLabel && bylineSpace > 1
+		? truncateToWidth(state.modelLabel, bylineSpace - 1, "…")
+		: "";
+	const availableSpace = bylineSpace - (modelText ? visibleWidth(modelText) + SEP : 0);
 	let thinkingWidth = thinkingText ? plainWidth(thinkingText) : 0;
 	let showThinking = thinkingText !== null && availableSpace > thinkingWidth;
 	if (!showThinking && status === "thinking" && effortSuffix && availableSpace > plainWidth("thinking")) {
@@ -263,11 +271,12 @@ export function buildSpinnerLine(state: SpinnerFrameState, paint: SpinnerPaint):
 	if (showTimer) parts.push(paint.dim(timerText));
 	if (showTokens && tokensText) parts.push(paint.dim(tokensText));
 	if (showThinking && thinkingText) parts.push(thinkingPaint(thinkingText));
+	if (modelText) parts.push(paint.dim(modelText));
 
 	let byline = "";
 	if (parts.length > 0) {
 		byline =
-			showThinking && status === "thinking" && !showTimer && !showTokens
+			showThinking && status === "thinking" && !showTimer && !showTokens && !modelText
 				? ` ${thinkingPaint(`(${thinkingText})`)}`
 				: ` ${paint.dim("(")}${parts.join(paint.dim(" · "))}${paint.dim(")")}`;
 	}
@@ -301,6 +310,15 @@ export function registerSpinner(pi: ExtensionAPI): void {
 	let thinkingShowTimer: ReturnType<typeof setTimeout> | null = null;
 	let thinkingClearTimer: ReturnType<typeof setTimeout> | null = null;
 	let repaintScheduled = false;
+	let routed: { provider: string; model: string; thinkingLevel: string } | undefined;
+
+	pi.events.on("pi-jev-router:route", (data) => {
+		if (!timer || !data || typeof data !== "object") return;
+		const route = data as Record<string, unknown>;
+		if (typeof route.provider !== "string" || typeof route.model !== "string" || typeof route.thinkingLevel !== "string") return;
+		routed = { provider: route.provider, model: route.model, thinkingLevel: route.thinkingLevel };
+		effortSuffix = effortSuffixFor(routed.thinkingLevel);
+	});
 
 	function clearThinkingTimers(): void {
 		if (thinkingShowTimer) {
@@ -373,6 +391,7 @@ export function registerSpinner(pi: ExtensionAPI): void {
 				tokens: settledTokens + streamTokens,
 				thinkingStatus,
 				effortSuffix,
+				modelLabel: routed ? `${routed.provider}/${routed.model}` : undefined,
 				thinkingElapsedMs: thinkingStartMs !== null ? Date.now() - thinkingStartMs : 0,
 			},
 			paintFor(ctx.ui.theme),
@@ -381,10 +400,8 @@ export function registerSpinner(pi: ExtensionAPI): void {
 	}
 
 	/**
-	 * Repaint after the current emit chain: spinner handlers registered before
-	 * thinking.ts run first on the same event, and thinking.ts still writes its
-	 * own working message (legacy path, repainted over within one tick). A
-	 * macrotask puts our full composed row last deterministically.
+	 * Repaint after the current emit chain. A macrotask puts the composed row
+	 * after one-off working messages from other extensions.
 	 */
 	function scheduleRepaint(ctx: UiCtx): void {
 		if (repaintScheduled) return;
@@ -427,6 +444,7 @@ export function registerSpinner(pi: ExtensionAPI): void {
 		thinkingStatus = null;
 		thinkingStartMs = null;
 		effortSuffix = "";
+		routed = undefined;
 		if (!ctx.hasUI) return;
 		stopLoop();
 		timer = setInterval(() => repaint(ctx), TICK_MS);
@@ -450,7 +468,7 @@ export function registerSpinner(pi: ExtensionAPI): void {
 			changed = true;
 		}
 		if (kind === "thinking_start") {
-			effortSuffix = effortSuffixFor(ctx.thinkingLevel);
+			effortSuffix = effortSuffixFor(routed?.thinkingLevel ?? ctx.thinkingLevel);
 			beginThinking();
 			changed = true;
 		} else if (kind === "thinking_end") {
@@ -472,9 +490,20 @@ export function registerSpinner(pi: ExtensionAPI): void {
 		if (ctx.hasUI) scheduleRepaint(ctx);
 	});
 
-	pi.on("agent_settled", async (_event, ctx) => {
+	pi.on("model_select", () => {
+		routed = undefined;
+		effortSuffix = "";
+	});
+
+	const stop = (): void => {
 		stopLoop();
 		clearThinkingTimers();
+		routed = undefined;
+	};
+	pi.on("agent_settled", async (_event, ctx) => {
+		stop();
 		if (ctx.hasUI) ctx.ui.setWorkingMessage();
 	});
+	// /reload must stop the old repaint loop before a new spinner is registered.
+	pi.on("session_shutdown", stop);
 }

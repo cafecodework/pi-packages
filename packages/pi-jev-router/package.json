@@ -1,0 +1,26 @@
+{
+  "name": "pi-jev-router",
+  "version": "0.1.0",
+  "description": "Jev-powered virtual model router for Pi",
+  "license": "MIT",
+  "author": "cafecodework",
+  "type": "module",
+  "files": [
+    "src",
+    "test",
+    "README.md",
+    "LICENSE",
+    "tsconfig.json"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/router.test.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
