@@ -13,11 +13,13 @@
     "pi-cafe-space:relay:start": "npm run relay:start --workspace=@cafecodework/pi-cafe-space",
     "pi-cafe-space:relay:stop": "npm run relay:stop --workspace=@cafecodework/pi-cafe-space",
     "pi-subagent:test": "npm run test --workspace=@cafecodework/pi-subagent",
-    "pi-jev-router:test": "npm run test --workspace=pi-jev-router"
+    "pi-jev-router:test": "npm run test --workspace=pi-jev-router",
+    "pi-jev-router:check": "npm run check --workspace=pi-jev-router"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-ai": "0.99.1",
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@earendil-works/pi-tui": "0.99.1",
     "@types/node": "^22.0.0",
     "typebox": "^1.3.25",
     "typescript": "^5.0.0"

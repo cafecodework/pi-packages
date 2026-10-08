@@ -18,9 +18,11 @@
     ]
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test test/router.test.mjs"
+    "test": "node --experimental-strip-types --test test/router.test.mjs",
+    "check": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-ai": ">=0.99.0",
+    "@earendil-works/pi-coding-agent": ">=0.99.0"
   }
 }

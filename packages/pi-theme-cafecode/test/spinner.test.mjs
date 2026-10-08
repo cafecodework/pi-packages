@@ -56,7 +56,7 @@ test("theme repaint preserves Jev route and effort in either extension load orde
         theme: { name: "claude-code-dark", fg: (_token, text) => text },
         setWorkingMessage: (text) => { workingMessage = text; writes++; },
       },
-      modelRegistry: { find: (provider, id) => ({ provider, id }) },
+      modelRegistry: { find: (provider, id) => ({ provider, id, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } }) },
     };
     const emit = async (name, event = {}) => {
       for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
@@ -69,7 +69,7 @@ test("theme repaint preserves Jev route and effort in either extension load orde
       ]) {
         await router.route({
           reason: "continuation", thinkingLevel: "high", messages: [],
-          state: { phase: "implementation", model },
+          state: { model },
         }, ctx);
         await emit("message_update", { assistantMessageEvent: { type: "thinking_start" } });
         // Several real spinner callbacks, not just the router's one-off UI write.
