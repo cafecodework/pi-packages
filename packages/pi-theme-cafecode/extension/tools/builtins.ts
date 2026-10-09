@@ -841,9 +841,9 @@ export function registerBuiltins(pi: ExtensionAPI): void {
 			if (c.isError) {
 				return cachedText(c.lastComponent, withResultLead(theme, theme.fg("error", resultText(result) || "Error reading file")));
 			}
-			// Image results carry no text (CC: "[Image data detected and sent to Claude]").
+			// Image results carry no text (CC: "[Image data detected and sent to the model]").
 			if (resultHasImage(result) && !resultText(result)) {
-				return cachedText(c.lastComponent, withResultLead(theme, theme.fg("dim", "[Image data detected and sent to Claude]")));
+				return cachedText(c.lastComponent, withResultLead(theme, theme.fg("dim", "[Image data detected and sent to the model]")));
 			}
 			const content = resultText(result);
 			// pi appends a continuation notice when a user-supplied `limit` stopped

@@ -93,8 +93,7 @@ export function registerThinking(pi: ExtensionAPI): void {
 	// — extension registrations for it are rejected outright ("conflicts with
 	// built-in shortcut. Skipping"). ctrl+shift+t loses an extension-vs-
 	// extension conflict to @juicesharp/rpiv-todo (load-order dependent). alt+t
-	// is free, and ESC-prefixed alt chords decode on every terminal (same
-	// rationale as commands.ts's alt+o fallback). Note pi's own ctrl+t stays
+	// is free, and ESC-prefixed alt chords decode on every terminal. Note pi's own ctrl+t stays
 	// live and flips hideThinkingBlock — with our empty label that only adds a
 	// blank row; pressing it again undoes it.
 	pi.registerShortcut("alt+t", {

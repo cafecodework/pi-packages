@@ -19,7 +19,7 @@ after(() => {
 
 const jiti = createJiti(import.meta.url);
 const { buildSpinnerLine, registerSpinner } = await jiti.import("../extension/spinner.ts");
-const { default: registerRouter } = await jiti.import("../../pi-jev-router/src/index.ts");
+const { default: registerRouter } = await jiti.import("../../pi-auto-router/src/index.ts");
 
 const identity = (s) => s;
 const paint = { accent: identity, shimmer: identity, dim: identity };
@@ -42,7 +42,7 @@ test("spinner keeps the routed model visible at wide and narrow widths", () => {
   assert.ok(visibleWidth(tiny) <= 24, tiny);
 });
 
-test("theme repaint preserves Jev route and effort in either extension load order", async (t) => {
+test("theme repaint preserves auto route and effort in either extension load order", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 0 });
   for (const registrars of [[registerSpinner, registerRouter], [registerRouter, registerSpinner]]) {
     const bus = new EventEmitter();
@@ -63,9 +63,9 @@ test("theme repaint preserves Jev route and effort in either extension load orde
       registerVirtualModel: (definition) => { router = definition; },
     };
     const ctx = {
-      hasUI: true, thinkingLevel: "high", model: { provider: "jev", id: "auto" },
+      hasUI: true, thinkingLevel: "high", model: { provider: "router", id: "auto" },
       ui: {
-        theme: { name: "claude-code-dark", fg: (_token, text) => text },
+        theme: { name: "cafe-theme-dark", fg: (_token, text) => text },
         setWorkingMessage: (text) => { workingMessage = text; writes++; },
       },
       modelRegistry: { find: (provider, id) => ({ provider, id, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } }) },

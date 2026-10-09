@@ -7,7 +7,7 @@
  * Loader can do none of that — it bakes the glyph color once at
  * setWorkingIndicator time (AUDIT §5 spinner.ts:74 burn-in) and forces the verb
  * through messageColorFn = theme.fg("muted") (AUDIT §6: the verb should be
- * claude brand orange, not muted gray).
+ * brand brand orange, not muted gray).
  *
  * So we do what the audit's feasibility note prescribes: hide the built-in
  * indicator with `frames: []` (pi loader.js:44,51 — empty frames ⇒ no glyph and
@@ -91,9 +91,9 @@ let verb = sampleVerb();
 
 /** Color functions for one frame — resolved from the *live* theme each tick. */
 export interface SpinnerPaint {
-	/** claude brand orange (CC messageColor 'claude'). */
+	/** brand brand orange (CC messageColor 'brand'). */
 	accent: (s: string) => string;
-	/** claude shimmer (CC shimmerColor 'claudeShimmer'). */
+	/** brand shimmer (CC shimmerColor 'brandShimmer'). */
 	shimmer: (s: string) => string;
 	/** CC's dimColor. */
 	dim: (s: string) => string;
@@ -114,7 +114,7 @@ export interface SpinnerFrameState {
 	thinkingStatus?: ThinkingStatus;
 	/** CC getEffortSuffix (effort.ts:188): ` with high effort`, "" when unset. */
 	effortSuffix?: string;
-	/** Physical provider/model from the active Jev route, not the virtual selection. */
+	/** Physical provider/model from the active auto route, not the virtual selection. */
 	modelLabel?: string;
 	/** How long the current thinking block has been open — drives the
 	 *  "almost done thinking" wording on long thinks. */
@@ -207,7 +207,7 @@ export function thinkingWording(blockElapsedMs: number): string {
  * with high effort)`. Pure — takes the animation clock and color functions,
  * returns an ANSI string. Mirrors SpinnerAnimationRow's derivations for a
  * single (non-teammate) agent. Glyph and verb are painted in the accent
- * (claude brand) color every tick — no gray verb (AUDIT §6), no baked-in frame
+ * (brand brand) color every tick — no gray verb (AUDIT §6), no baked-in frame
  * color (AUDIT §5 spinner.ts:74) — with a glimmer sweep across the verb
  * (AUDIT §6, CC's most recognizable spinner effect).
  *
@@ -312,7 +312,7 @@ export function registerSpinner(pi: ExtensionAPI): void {
 	let repaintScheduled = false;
 	let routed: { provider: string; model: string; thinkingLevel: string } | undefined;
 
-	pi.events.on("pi-jev-router:route", (data) => {
+	pi.events.on("pi-auto-router:route", (data) => {
 		if (!timer || !data || typeof data !== "object") return;
 		const route = data as Record<string, unknown>;
 		if (typeof route.provider !== "string" || typeof route.model !== "string" || typeof route.thinkingLevel !== "string") return;
@@ -361,7 +361,7 @@ export function registerSpinner(pi: ExtensionAPI): void {
 	}
 
 	function paintFor(theme: Theme): SpinnerPaint {
-		// CC messageColor 'claude' / shimmerColor 'claudeShimmer' are BRAND
+		// CC messageColor 'brand' / shimmerColor 'brandShimmer' are BRAND
 		// colors, not the UI accent: the theme's `accent` maps to CC's
 		// suggestion blue (menus, selectors), so the spinner resolves the CC
 		// palette directly (memoized per theme name).
@@ -373,8 +373,8 @@ export function registerSpinner(pi: ExtensionAPI): void {
 			}
 		});
 		return {
-			accent: (s) => paletteFg(pal.cc.claude, s),
-			shimmer: (s) => paletteFg(pal.cc.claudeShimmer, s),
+			accent: (s) => paletteFg(pal.cc.brand, s),
+			shimmer: (s) => paletteFg(pal.cc.brandShimmer, s),
 			dim: (s) => theme.fg("dim", s),
 		};
 	}

@@ -32,7 +32,7 @@ function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
 }
 
 /** Approx terminal canvas per scheme, for muting fills toward the background. */
-const CANVAS_DARK: Rgb = rgb(30, 30, 30); // ≈ claude-code-dark export.pageBg #1E1E1E
+const CANVAS_DARK: Rgb = rgb(30, 30, 30); // ≈ cafe-theme-dark export.pageBg #1E1E1E
 const CANVAS_LIGHT: Rgb = rgb(255, 255, 255);
 
 /** A palette value: a 24-bit hex string, or a basic ANSI index (0-15). */
@@ -112,8 +112,8 @@ function hexTo256(hex: string): number {
 
 /** The CC role palette (DESIGN 2.2 table). */
 export interface CcPalette {
-	claude: ColorValue;
-	claudeShimmer: ColorValue;
+	brand: ColorValue;
+	brandShimmer: ColorValue;
 	autoAccept: ColorValue;
 	bashBorder: ColorValue;
 	permission: ColorValue;
@@ -137,42 +137,42 @@ type ThemeKey = "dark" | "light" | "dark-daltonized" | "light-daltonized" | "dar
 
 const PALETTES: Record<ThemeKey, CcPalette> = {
 	dark: {
-		claude: "#D77757", claudeShimmer: "#EB9F7F", autoAccept: "#AF87FF", bashBorder: "#FD5DB1",
+		brand: "#D77757", brandShimmer: "#EB9F7F", autoAccept: "#AF87FF", bashBorder: "#FD5DB1",
 		permission: "#B1B9F9", planMode: "#48968C", promptBorder: "#888888", inactive: "#999999",
 		subtle: "#505050", success: "#4EBA65", error: "#FF6B80", warning: "#FFC107",
 		diffAddedBg: "#225C2B", diffRemovedBg: "#7A2936", diffAddedWord: "#38A660", diffRemovedWord: "#B3596B",
 		userMsgBg: "#373737", selectionBg: "#264F78", bashMsgBg: "#413C41",
 	},
 	light: {
-		claude: "#D77757", claudeShimmer: "#F59575", autoAccept: "#8700FF", bashBorder: "#FF0087",
+		brand: "#D77757", brandShimmer: "#F59575", autoAccept: "#8700FF", bashBorder: "#FF0087",
 		permission: "#5769F7", planMode: "#006666", promptBorder: "#999999", inactive: "#666666",
 		subtle: "#AFAFAF", success: "#2C7A39", error: "#AB2B3F", warning: "#966C1E",
 		diffAddedBg: "#69DB7C", diffRemovedBg: "#FFA8B4", diffAddedWord: "#2F9D44", diffRemovedWord: "#D1454B",
 		userMsgBg: "#F0F0F0", selectionBg: "#B4D5FF", bashMsgBg: "#FAF5FA",
 	},
 	"dark-daltonized": {
-		claude: "#FF9933", claudeShimmer: "#FFB765", autoAccept: "#AF87FF", bashBorder: "#3399FF",
+		brand: "#FF9933", brandShimmer: "#FFB765", autoAccept: "#AF87FF", bashBorder: "#3399FF",
 		permission: "#99CCFF", planMode: "#669999", promptBorder: "#888888", inactive: "#999999",
 		subtle: "#505050", success: "#3399FF", error: "#FF6666", warning: "#FFCC00",
 		diffAddedBg: "#004466", diffRemovedBg: "#660000", diffAddedWord: "#0077B3", diffRemovedWord: "#B30000",
 		userMsgBg: "#373737", selectionBg: "#264F78", bashMsgBg: "#413C41",
 	},
 	"light-daltonized": {
-		claude: "#FF9933", claudeShimmer: "#FFB765", autoAccept: "#8700FF", bashBorder: "#0066CC",
+		brand: "#FF9933", brandShimmer: "#FFB765", autoAccept: "#8700FF", bashBorder: "#0066CC",
 		permission: "#3366FF", planMode: "#336666", promptBorder: "#999999", inactive: "#666666",
 		subtle: "#AFAFAF", success: "#006699", error: "#CC0000", warning: "#FF9900",
 		diffAddedBg: "#99CCFF", diffRemovedBg: "#FFCCCC", diffAddedWord: "#3366CC", diffRemovedWord: "#993333",
 		userMsgBg: "#DCDCDC", selectionBg: "#B4D5FF", bashMsgBg: "#FAF5FA",
 	},
 	"dark-ansi": {
-		claude: 9, claudeShimmer: 11, autoAccept: 13, bashBorder: 13,
+		brand: 9, brandShimmer: 11, autoAccept: 13, bashBorder: 13,
 		permission: 12, planMode: 14, promptBorder: 7, inactive: 7,
 		subtle: 7, success: 10, error: 9, warning: 11,
 		diffAddedBg: 2, diffRemovedBg: 1, diffAddedWord: 10, diffRemovedWord: 9,
 		userMsgBg: 8, selectionBg: 4, bashMsgBg: 0,
 	},
 	"light-ansi": {
-		claude: 9, claudeShimmer: 11, autoAccept: 5, bashBorder: 5,
+		brand: 9, brandShimmer: 11, autoAccept: 5, bashBorder: 5,
 		permission: 4, planMode: 6, promptBorder: 7, inactive: 8,
 		subtle: 8, success: 2, error: 1, warning: 3,
 		diffAddedBg: 2, diffRemovedBg: 1, diffAddedWord: 10, diffRemovedWord: 9,
@@ -217,16 +217,16 @@ const DIFF_CHROME_LIGHT: DiffChrome = {
 /** Resolve a pi theme name to a CC palette key, or undefined when not a CC theme. */
 export function paletteKeyForThemeName(themeName: string | undefined): ThemeKey | undefined {
 	if (!themeName) return undefined;
-	// Only the shipped CC themes are `claude-code-*`. Requiring the prefix keeps
+	// Only the shipped CC themes are `cafe-theme-*`. Requiring the prefix keeps
 	// pi's built-in "dark"/"light" (theme.js getBuiltinThemes) — and any bare pi
 	// theme named "dark"/"light-…" — out of the CC board: without the prefix
-	// gate, "dark".replace(/^claude-code-/,"") is a no-op → "dark" in PALETTES →
+	// gate, "dark".replace(/^cafe-theme-/,"") is a no-op → "dark" in PALETTES →
 	// pi's neutral built-in gets painted with CC's orange palette.
-	const prefix = "claude-code-";
+	const prefix = "cafe-theme-";
 	if (!themeName.startsWith(prefix)) return undefined;
 	const stripped = themeName.slice(prefix.length);
 	// hasOwnProperty, not `in`: `in` walks the prototype chain, so a theme named
-	// "claude-code-toString"/"claude-code-constructor" would falsely match.
+	// "cafe-theme-toString"/"cafe-theme-constructor" would falsely match.
 	if (Object.prototype.hasOwnProperty.call(PALETTES, stripped)) return stripped as ThemeKey;
 	return undefined;
 }
@@ -297,7 +297,7 @@ export function resolvePalette(
 ): ResolvedPalette {
 	const colorMode = detectColorMode(tokenFg);
 	// Fold the color mode into the cache key: diff.ts seeds the cache at module
-	// load with resolvePalette("claude-code-dark", () => undefined) (→ truecolor,
+	// load with resolvePalette("cafe-theme-dark", () => undefined) (→ truecolor,
 	// no probe evidence); without the mode in the key that entry would poison the
 	// real getPalette(theme) call on a 256color terminal (same name → cache hit →
 	// stale truecolor palette). Mode is session-constant, so real renders still
@@ -351,8 +351,8 @@ function buildPalette(
 	const added = diffPair("toolDiffAdded", "#225C2B", "#38A660");
 	const removed = diffPair("toolDiffRemoved", "#7A2936", "#B3596B");
 	const fallback: CcPalette = {
-		claude: tok("accent", "#D77757"),
-		claudeShimmer: tok("customMessageLabel", "#EB9F7F"),
+		brand: tok("accent", "#D77757"),
+		brandShimmer: tok("customMessageLabel", "#EB9F7F"),
 		autoAccept: tok("thinkingHigh", "#AF87FF"),
 		bashBorder: tok("bashMode", "#FD5DB1"),
 		permission: tok("mdLink", "#B1B9F9"),

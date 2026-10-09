@@ -51,7 +51,7 @@ function ccAccent(theme: Theme): (s: string) => string {
 			return undefined;
 		}
 	});
-	return (s) => paletteFg(pal.cc.claude, s);
+	return (s) => paletteFg(pal.cc.brand, s);
 }
 
 // pi brand mark — the geometric P+i logo (pi.dev/logo-auto.svg), 6-row grid.
@@ -164,7 +164,7 @@ function discoverSkills(cwd: string): string[] {
 const GENERIC_SEGMENTS = new Set(["index", "main", "extension", "extensions", "src", "dist", "lib", ".", ".."]);
 
 /** Human name for a settings entry: `npm:pi-web-access` → pi-web-access,
- *  `/…/better-claude-code-ui/extension/index.ts` → better-claude-code-ui. */
+ *  `/…/pi-theme-cafecode/extension/index.ts` → pi-theme-cafecode. */
 export function extensionDisplayName(entry: string): string {
 	const spec = entry.replace(/^(npm|git|file):/, "");
 	const segments = spec.split("/").filter(Boolean);

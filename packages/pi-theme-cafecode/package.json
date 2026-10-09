@@ -1,7 +1,7 @@
 {
   "name": "@cafecodework/pi-theme-cafecode",
   "version": "0.1.0",
-  "description": "A Claude-inspired visual theme and UI extension for Pi maintained by cafecodework",
+  "description": "A CaféCode visual theme and UI extension for Pi maintained by cafecodework",
   "keywords": ["pi-package", "pi-extension", "theme", "tui"],
   "license": "MIT",
   "author": "cafecodework",

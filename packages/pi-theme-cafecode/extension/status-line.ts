@@ -121,7 +121,22 @@ export function registerStatusLine(pi: ExtensionAPI): void {
 					}
 
 					const line = parts.join(theme.fg("dim", " · "));
-					return [truncateToWidth(line, width, "")];
+					const lines = [truncateToWidth(line, width, "")];
+					// Extension status row disabled by user preference; keep the original compact footer.
+					// const statuses = [...footerData.getExtensionStatuses()]
+					// 	.sort(([a], [b]) => a.localeCompare(b))
+					// 	.map(([key, text]) => {
+					// 		const status = text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+					// 		return key === "pi-collab"
+					// 			? status.replace(/^café space:\s*/i, "Café: ").replace(/\s*·\s*\/cafe 分享$/, "")
+					// 			: status;
+					// 	})
+					// 	.filter(Boolean);
+					// if (statuses.length) {
+					// 	lines.push("");
+					// 	lines.push(truncateToWidth(theme.fg("dim", statuses.join(" · ")), width, ""));
+					// }
+					return lines;
 				},
 			};
 		});
