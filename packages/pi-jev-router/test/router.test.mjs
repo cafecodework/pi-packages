@@ -1,31 +1,52 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { classify } from "@earendil-works/pi-ai/api/typesafe-system-one";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import register from "../src/index.ts";
+import { DEFAULT_CONFIG, loadConfig, parseConfig } from "../src/config.ts";
+
+const agentDir = mkdtempSync(join(tmpdir(), "pi-jev-router-test-"));
+const configPath = join(agentDir, "pi-jev-router.json");
+after(() => rmSync(agentDir, { recursive: true, force: true }));
 
 const user = (content) => ({ role: "user", content });
 const physical = (id) => ({ model: { provider: "cafe", id } });
 const request = { reason: "user", thinkingLevel: "medium", messages: [user("task")] };
 
-function setup({ classification = "medium", stopReason = "stop" } = {}) {
+function setup({ classification = "medium", stopReason = "stop", config } = {}) {
   let router;
   const statuses = [];
   const routes = [];
   const calls = [];
-  register({
-    registerVirtualModel: (definition) => { router = definition; },
-    on: () => {},
-    events: { emit: (channel, route) => routes.push({ channel, ...route }) },
-  });
+  const classifierLookups = [];
+  if (config === undefined) rmSync(configPath, { force: true });
+  else writeFileSync(configPath, JSON.stringify(config));
+  const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    register({
+      registerVirtualModel: (definition) => { router = definition; },
+      on: () => {},
+      events: { emit: (channel, route) => routes.push({ channel, ...route }) },
+    });
+  } finally {
+    if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
+  }
   const ctx = {
     ui: { setWorkingMessage: (value) => statuses.push(value) },
     modelRegistry: {
       find: (provider, id) => ({ provider, id, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" } }),
-      findOfType: () => ({ provider: "typesafe", id: "jev-latest" }),
-      classify: async (_model, input, options) => {
-        calls.push({ input, options });
+      findOfType: (type, provider, id) => {
+        classifierLookups.push({ type, provider, id });
+        return { provider, id };
+      },
+      classify: async (model, input, options) => {
+        calls.push({ model, input, options });
         return {
           stopReason,
           answers: { complexity: { type: "choice", choice: classification } },
@@ -33,8 +54,147 @@ function setup({ classification = "medium", stopReason = "stop" } = {}) {
       },
     },
   };
-  return { router, ctx, statuses, routes, calls };
+  return { router, ctx, statuses, routes, calls, classifierLookups };
 }
+
+test("configuration merges only supplied fields without mutating defaults", () => {
+  assert.deepEqual(parseConfig({}), DEFAULT_CONFIG);
+  const config = parseConfig({
+    classifier: { model: " custom-classifier " },
+    routes: { high: { provider: "other", model: "family/model", thinkingLevel: "minimal" } },
+    instructions: " Use prompt and recentMessages. ",
+    criteria: { high: "New high criterion" },
+  });
+  assert.deepEqual(config.classifier, { provider: "typesafe", model: "custom-classifier" });
+  assert.deepEqual(config.routes.high, { provider: "other", model: "family/model", thinkingLevel: "minimal" });
+  assert.deepEqual(config.routes.medium, DEFAULT_CONFIG.routes.medium);
+  assert.equal(config.instructions, "Use prompt and recentMessages.");
+  assert.equal(config.criteria.high, "New high criterion");
+  assert.equal(config.criteria.low, DEFAULT_CONFIG.criteria.low);
+  config.routes.medium.model = "changed";
+  assert.equal(DEFAULT_CONFIG.routes.medium.model, "gpt-6.1-sol");
+});
+
+test("README configuration examples pass the same loader validation", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const examples = [...readme.matchAll(/```json\s+([\s\S]*?)```/g)];
+  assert.equal(examples.length, 2);
+  for (const [, json] of examples) assert.doesNotThrow(() => parseConfig(JSON.parse(json)));
+});
+
+test("configuration rejects malformed shapes, typos, blank strings, invalid effort and self-routing", () => {
+  for (const [config, message] of [
+    [null, /config must be an object/], [[], /config must be an object/],
+    [{ route: {} }, /Unknown field config.route/],
+    [{ classifier: [] }, /classifier must be an object/],
+    [{ classifier: { model: 42 } }, /classifier.model/],
+    [{ classifier: { provider: " " } }, /classifier.provider/],
+    [{ classifier: { apiKey: "not-supported" } }, /Unknown field classifier.apiKey/],
+    [{ routes: null }, /routes must be an object/],
+    [{ routes: { high: null } }, /routes.high must be an object/],
+    [{ routes: { highest: {} } }, /Unknown field routes.highest/],
+    [{ routes: { high: { model: false } } }, /routes.high.model/],
+    [{ routes: { high: { thinkingLevel: "extreme" } } }, /routes.high.thinkingLevel/],
+    [{ routes: { high: { provider: "jev", model: "auto" } } }, /physical model/],
+    [{ instructions: " " }, /instructions/],
+    [{ criteria: { high: {} } }, /criteria.high/],
+    [{ criteria: { custom: "unsupported tier" } }, /Unknown field criteria.custom/],
+    [JSON.parse('{"__proto__": {"polluted": true}}'), /Unknown field config.__proto__/],
+  ]) assert.throws(() => parseConfig(config), message);
+  for (const thinkingLevel of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+    assert.equal(parseConfig({ routes: { low: { thinkingLevel } } }).routes.low.thinkingLevel, thinkingLevel);
+  }
+  assert.throws(() => setup({ config: { routes: { high: { thinkingLevel: "bad" } } } }), /pi-jev-router.json.*routes.high.thinkingLevel/);
+});
+
+test("config file loading handles missing files and BOM but reports invalid JSON and read errors", () => {
+  rmSync(configPath, { force: true });
+  assert.deepEqual(loadConfig(configPath), DEFAULT_CONFIG);
+  writeFileSync(configPath, '\uFEFF{"routes":{"low":{"thinkingLevel":"off"}}}');
+  assert.equal(loadConfig(configPath).routes.low.thinkingLevel, "off");
+  writeFileSync(configPath, "{broken");
+  assert.throws(() => loadConfig(configPath), /pi-jev-router.json/);
+  assert.throws(() => loadConfig(agentDir), /pi-jev-router/);
+});
+
+test("custom classifier, rubric and per-tier provider/model/effort reach the real routing boundary", async () => {
+  const config = {
+    classifier: { provider: "custom-classifier", model: "decision-v2" },
+    instructions: "根据 prompt 和 recentMessages 判定工作性质。",
+    criteria: { high: "架构方案", medium: "常规实现", low: "机械替换" },
+    routes: {
+      high: { provider: "provider-a", model: "same-id", thinkingLevel: "minimal" },
+      medium: { provider: "provider-b", model: "same-id", thinkingLevel: "off" },
+      low: { provider: "provider-c", model: "family/small", thinkingLevel: "low" },
+    },
+  };
+  for (const classification of ["high", "medium", "low"]) {
+    const s = setup({ config, classification });
+    const result = await s.router.route(request, s.ctx);
+    assert.deepEqual(result.state, config.routes[classification]);
+    assert.deepEqual(s.classifierLookups, [{ type: "classifier", provider: "custom-classifier", id: "decision-v2" }]);
+    assert.deepEqual(s.calls[0].model, { provider: "custom-classifier", id: "decision-v2" });
+    assert.deepEqual(s.calls[0].input.questions.complexity, { type: "choice", instructions: config.instructions, criteria: config.criteria });
+    assert.deepEqual(s.routes.at(-1), { channel: "pi-jev-router:route", ...config.routes[classification] });
+    const retried = await s.router.route({
+      ...request, reason: "retry", state: config.routes.medium,
+      failed: { model: result.model, thinkingLevel: result.thinkingLevel },
+    }, s.ctx);
+    assert.equal(retried.model.provider, config.routes[classification].provider, "match provider as well as ID");
+    assert.equal(s.calls.length, 1);
+  }
+  const s = setup({ config, stopReason: "error" });
+  const fallback = await s.router.route(request, s.ctx);
+  assert.deepEqual(fallback.state, config.routes.medium);
+  s.ctx.modelRegistry.findOfType = () => undefined;
+  assert.deepEqual((await s.router.route(request, s.ctx)).state, config.routes.medium);
+  const direct = await s.router.route({ ...request, reason: "direct" }, s.ctx);
+  assert.equal(direct.model.provider, "provider-c");
+  assert.equal(direct.model.id, "family/small");
+  assert.equal(direct.thinkingLevel, "low");
+  assert.equal(direct.state, undefined);
+  assert.equal(s.routes.length, 2, "direct requests do not publish a route");
+});
+
+test("shared models retain the chosen tier's effort across continuations, retries and reloads", async () => {
+  const routes = Object.fromEntries([ ["high", "xhigh"], ["medium", "high"], ["low", "off"] ].map(
+    ([tier, thinkingLevel]) => [tier, { provider: "other", model: "shared", thinkingLevel }],
+  ));
+  for (const classification of ["high", "medium", "low"]) {
+    const s = setup({ config: { routes }, classification });
+    const first = await s.router.route(request, s.ctx);
+    const response = { model: first.model, thinkingLevel: first.thinkingLevel };
+    for (const overrides of [
+      { reason: "continuation", state: first.state },
+      { reason: "retry", failed: response, state: routes.medium },
+      { reason: "continuation", previous: response },
+    ]) {
+      const next = await s.router.route({ ...request, ...overrides }, s.ctx);
+      assert.equal(next.model.provider, "other");
+      assert.equal(next.thinkingLevel, routes[classification].thinkingLevel);
+    }
+    assert.equal(s.calls.length, 1);
+    const reloaded = setup({ classification: "medium" });
+    for (const reason of ["continuation", "retry"]) {
+      const resumed = await reloaded.router.route({ ...request, reason, state: first.state, failed: response }, reloaded.ctx);
+      assert.equal(resumed.model.provider, "other", "saved turn survives a config change");
+      assert.equal(resumed.thinkingLevel, first.thinkingLevel);
+      assert.equal(resumed.state, undefined);
+    }
+    const fresh = await reloaded.router.route({ ...request, state: first.state }, reloaded.ctx);
+    assert.deepEqual(fresh.state, DEFAULT_CONFIG.routes.medium, "new turns use the reloaded configuration");
+  }
+});
+
+test("unknown or virtual target models fail explicitly without publishing misleading UI", async () => {
+  for (const model of [undefined, { api: "pi-virtual" }]) {
+    const s = setup({ config: { routes: { medium: { provider: "custom", model: "missing" } } } });
+    s.ctx.modelRegistry.find = () => model;
+    await assert.rejects(s.router.route(request, s.ctx), /custom\/missing/);
+    assert.deepEqual(s.routes, []);
+    assert.deepEqual(s.statuses, []);
+  }
+});
 
 test("classifies difficulty and maps model to thinking level", async () => {
   for (const [classification, model, thinkingLevel] of [
@@ -46,12 +206,12 @@ test("classifies difficulty and maps model to thinking level", async () => {
     const result = await s.router.route(request, s.ctx);
     assert.equal(result.model.id, model);
     assert.equal(result.thinkingLevel, thinkingLevel);
-    assert.deepEqual(result.state, { model });
+    assert.deepEqual(result.state, { provider: "cafe", model, thinkingLevel });
     assert.equal(s.calls.length, 1);
   }
 });
 
-test("classification rubric reserves Luna for mechanical work and favors Sol at the low/medium boundary", async () => {
+test("classification rubric prioritizes design for Astra, ordinary work for Sol, and mechanical work for Luna", async () => {
   const s = setup();
   await s.router.route(request, s.ctx);
   const { instructions, criteria } = s.calls[0].input.questions.complexity;
@@ -62,7 +222,13 @@ test("classification rubric reserves Luna for mechanical work and favors Sol at 
   }
   assert.match(criteria.low, /Clearly specified mechanical tasks/);
   assert.match(criteria.low, /short prompt or a small diff alone does not qualify/);
-  assert.equal(criteria.high, "High complexity: Architecture design, complex algorithms, subtle bugs, or security/critical refactoring");
+  assert.match(instructions, /Evaluate high first/);
+  assert.match(instructions, /user-configurable.*configuration-mechanism design/);
+  for (const task of ["feature design", "architecture reviews", "trade-offs", "configuration mechanisms", "security-sensitive work"]) {
+    assert.ok(criteria.high.includes(task), task);
+  }
+  assert.match(criteria.medium, /already-specified bounded feature/);
+  assert.match(criteria.medium, /configuration mechanism.*high, not medium/);
 });
 
 test("new user messages reclassify despite persisted state or the previous physical model", async () => {
@@ -75,7 +241,7 @@ test("new user messages reclassify despite persisted state or the previous physi
       const s = setup({ classification });
       const result = await s.router.route({ ...request, state, previous: physical(oldModel) }, s.ctx);
       assert.equal(result.model.id, model);
-      assert.deepEqual(result.state, { model });
+      assert.deepEqual(result.state, DEFAULT_CONFIG.routes[classification]);
       assert.equal(s.calls.length, 1);
     }
   }
@@ -92,7 +258,9 @@ test("successful file edits keep the current model without reclassification or d
       }, s.ctx);
       assert.equal(result.model.id, "gpt-6-astra");
       assert.equal(result.thinkingLevel, "xhigh");
-      assert.equal(result.state, undefined, "Pi retains the existing state");
+      assert.deepEqual(result.state, DEFAULT_CONFIG.routes.high, "migrates legacy state once");
+      const next = await s.router.route({ ...request, reason: "continuation", state: result.state }, s.ctx);
+      assert.equal(next.state, undefined, "Pi retains the migrated state without duplicate entries");
       assert.equal(s.calls.length, 0);
     }
   }

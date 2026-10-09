@@ -6,40 +6,45 @@ import type {
 	ModelRouteRequest,
 } from "@earendil-works/pi-coding-agent";
 
-const PROVIDER = "cafe";
-const ASTRA = "gpt-6-astra";
-const SOL = "gpt-6.1-sol";
-const LUNA = "gpt-6-luna";
+import { DEFAULT_CONFIG, loadConfig, type RouterConfig, type RouteTarget, type Tier } from "./config.ts";
 
 interface RouterState {
 	model: string;
+	// Optional only for sessions saved before user configuration was supported.
+	provider?: string;
+	thinkingLevel?: RouteTarget["thinkingLevel"];
 }
 
 type RouterRequest = ModelRouteRequest<RouterState>;
 
-const MODEL_THINKING: Partial<Record<string, ModelRoute<RouterState>["thinkingLevel"]>> = {
-	[LUNA]: "max",
-	[SOL]: "high",
-	[ASTRA]: "xhigh",
-};
+function savedRoute(request: RouterRequest): RouteTarget | undefined {
+	const state = request.state;
+	if (!state) return undefined;
+	const provider = state.provider ?? "cafe";
+	const legacy = Object.values(DEFAULT_CONFIG.routes).find((r) => r.provider === provider && r.model === state.model);
+	return { provider, model: state.model, thinkingLevel: state.thinkingLevel ?? legacy?.thinkingLevel ?? request.thinkingLevel };
+}
 
 function routeTo(
 	pi: ExtensionAPI,
 	request: RouterRequest,
 	ctx: ExtensionContext,
-	id: string,
+	target: RouteTarget,
 ): ModelRoute<RouterState> {
 	request.signal?.throwIfAborted();
-	const model = ctx.modelRegistry.find(PROVIDER, id);
-	if (!model) throw new Error(`Model ${PROVIDER}/${id} is not in the catalog`);
-	const thinkingLevel = clampThinkingLevel(model, MODEL_THINKING[id] ?? request.thinkingLevel);
+	const { provider, model: id } = target;
+	const model = ctx.modelRegistry.find(provider, id);
+	if (!model) throw new Error(`[pi-jev-router] Model ${provider}/${id} is not in the catalog`);
+	if (model.api === "pi-virtual") throw new Error(`[pi-jev-router] ${provider}/${id} must be a physical model`);
+	const thinkingLevel = clampThinkingLevel(model, target.thinkingLevel);
 	if (request.reason !== "direct") {
 		// Custom spinners repaint the working message; send them structured route data too.
-		pi.events.emit("pi-jev-router:route", { provider: PROVIDER, model: id, thinkingLevel });
-		ctx.ui.setWorkingMessage(`Thinking with ${thinkingLevel} effort · ${PROVIDER}/${id}`);
+		pi.events.emit("pi-jev-router:route", { provider, model: id, thinkingLevel });
+		ctx.ui.setWorkingMessage(`Thinking with ${thinkingLevel} effort · ${provider}/${id}`);
 	}
 	// Pi retains the current state when undefined is returned; avoid duplicate session entries.
-	const state = request.reason !== "direct" && request.state?.model !== id ? { model: id } : undefined;
+	const unchanged = request.state?.provider === provider && request.state.model === id && request.state.thinkingLevel === thinkingLevel;
+	const state = request.reason !== "direct" && !unchanged ? { provider, model: id, thinkingLevel } : undefined;
 	return { model, thinkingLevel, state };
 }
 
@@ -49,13 +54,13 @@ function messageText(message: RouterRequest["messages"][number]): string {
 	return content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
 }
 
-async function chooseModel(request: RouterRequest, ctx: ExtensionContext): Promise<string> {
-	const jev = ctx.modelRegistry.findOfType("classifier", "typesafe", "jev-latest");
-	if (!jev) return SOL;
+async function chooseTier(request: RouterRequest, ctx: ExtensionContext, config: RouterConfig): Promise<Tier> {
+	const jev = ctx.modelRegistry.findOfType("classifier", config.classifier.provider, config.classifier.model);
+	if (!jev) return "medium";
 	const lastUser = request.messages.findLastIndex((message) => message.role === "user");
-	if (lastUser < 0) return SOL;
+	if (lastUser < 0) return "medium";
 	const prompt = messageText(request.messages[lastUser]).slice(0, 16_000);
-	if (!prompt.trim()) return SOL;
+	if (!prompt.trim()) return "medium";
 	// ponytail: last four text messages only; add a task summary if longer-range references need routing.
 	const recentMessages = request.messages.slice(0, lastUser)
 		.filter((message) => message.role === "user" || message.role === "assistant")
@@ -70,12 +75,8 @@ async function chooseModel(request: RouterRequest, ctx: ExtensionContext): Promi
 			questions: {
 				complexity: {
 					type: "choice",
-					instructions: "Classify the complexity of the task requested in `prompt`. Use `recentMessages` (oldest to newest) only to resolve references such as 'continue' or 'implement that plan'. Judge the underlying work, not the length of the reply; do not carry over the difficulty of unrelated earlier tasks. Reserve low for clearly mechanical tasks with an explicit outcome and no diagnosis, design, or code-behavior judgment. If a task is borderline between low and medium or its scope is unclear, choose medium; preserve high for genuinely demanding work.",
-					criteria: {
-						high: "High complexity: Architecture design, complex algorithms, subtle bugs, or security/critical refactoring",
-						medium: "Medium complexity (default for ordinary work): Standard features, common bug fixes, routine debugging, code reviews, technical explanations, configuration changes, or general code modifications that require understanding behavior. Includes small changes and short questions needing analysis; also tasks whose scope is unclear but not clearly high complexity.",
-						low: "Low complexity (narrow): Clearly specified mechanical tasks such as correcting a literal typo, formatting supplied text, or replacing an exact label/value without deciding what it should be. No diagnosis, code review, design, or reasoning about behavior. A short prompt or a small diff alone does not qualify.",
-					},
+					instructions: config.instructions,
+					criteria: config.criteria,
 				},
 			},
 		},
@@ -86,13 +87,13 @@ async function chooseModel(request: RouterRequest, ctx: ExtensionContext): Promi
 	if (result.stopReason === "aborted") throw new DOMException("Classification aborted", "AbortError");
 	const answer = result.stopReason === "stop" ? result.answers.complexity : undefined;
 	if (answer?.type === "choice") {
-		if (answer.choice === "high") return ASTRA;
-		if (answer.choice === "low") return LUNA;
+		if (answer.choice === "high" || answer.choice === "low") return answer.choice;
 	}
-	return SOL;
+	return "medium";
 }
 
 export default function (pi: ExtensionAPI): void {
+	const config = loadConfig();
 	pi.on("model_select", (_event, ctx) => ctx.ui.setWorkingMessage());
 
 	pi.registerVirtualModel<RouterState>({
@@ -104,20 +105,22 @@ export default function (pi: ExtensionAPI): void {
 		maxTokens: 128_000,
 		async route(request, ctx) {
 			request.signal?.throwIfAborted();
-			if (request.reason === "direct") return routeTo(pi, request, ctx, LUNA);
+			if (request.reason === "direct") return routeTo(pi, request, ctx, config.routes.low);
 			if (request.reason !== "user") {
-				const failed = request.reason === "retry" ? request.failed?.model : undefined;
-				if (failed?.provider === PROVIDER && Object.hasOwn(MODEL_THINKING, failed.id)) {
-					return routeTo(pi, request, ctx, failed.id);
-				}
-				if (request.state) return routeTo(pi, request, ctx, request.state.model);
-				const previous = request.previous?.model;
-				if (previous?.provider === PROVIDER && Object.hasOwn(MODEL_THINKING, previous.id)) {
-					return routeTo(pi, request, ctx, previous.id);
-				}
+				const saved = savedRoute(request);
+				const recover = (response: RouterRequest["previous"]): RouteTarget | undefined => {
+					if (!response) return undefined;
+					const target = [saved, config.routes.medium, config.routes.high, config.routes.low].find(
+						(r) => r?.provider === response.model.provider && r.model === response.model.id,
+					);
+					return target && { ...target, thinkingLevel: response.thinkingLevel ?? target.thinkingLevel };
+				};
+				const failed = request.reason === "retry" ? recover(request.failed) : undefined;
+				const target = failed ?? saved ?? recover(request.previous);
+				if (target) return routeTo(pi, request, ctx, target);
 			}
-			const model = await chooseModel(request, ctx);
-			return routeTo(pi, request, ctx, model);
+			const tier = await chooseTier(request, ctx, config);
+			return routeTo(pi, request, ctx, config.routes[tier]);
 		},
 	});
 }

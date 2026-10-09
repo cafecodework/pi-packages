@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { test } from "node:test";
+import { after, test } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { stripVTControlCharacters as plain } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { createJiti } from "jiti";
+
+const agentDir = mkdtempSync(join(tmpdir(), "pi-spinner-test-"));
+const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
+process.env.PI_CODING_AGENT_DIR = agentDir;
+after(() => {
+  if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
+  rmSync(agentDir, { recursive: true, force: true });
+});
 
 const jiti = createJiti(import.meta.url);
 const { buildSpinnerLine, registerSpinner } = await jiti.import("../extension/spinner.ts");
@@ -64,12 +76,13 @@ test("theme repaint preserves Jev route and effort in either extension load orde
     for (const register of registrars) register(pi);
     try {
       await emit("agent_start");
-      for (const [model, effort] of [
-        ["gpt-6-astra", "xhigh"], ["gpt-6-luna", "max"], ["gpt-6.1-sol", "high"],
+      for (const [provider, model, effort] of [
+        ["custom", "family/shared", "minimal"],
+        ["cafe", "gpt-6-astra", "xhigh"], ["cafe", "gpt-6-luna", "max"], ["cafe", "gpt-6.1-sol", "high"],
       ]) {
         await router.route({
           reason: "continuation", thinkingLevel: "high", messages: [],
-          state: { model },
+          state: { provider, model, thinkingLevel: effort },
         }, ctx);
         await emit("message_update", { assistantMessageEvent: { type: "thinking_start" } });
         // Several real spinner callbacks, not just the router's one-off UI write.
@@ -77,7 +90,7 @@ test("theme repaint preserves Jev route and effort in either extension load orde
         t.mock.timers.tick(200);
         assert.ok(writes > before);
         assert.match(plain(workingMessage), /… \(/);
-        assert.ok(plain(workingMessage).includes(`cafe/${model}`), plain(workingMessage));
+        assert.ok(plain(workingMessage).includes(`${provider}/${model}`), plain(workingMessage));
         assert.ok(plain(workingMessage).includes(`thinking with ${effort} effort`), plain(workingMessage));
       }
       await router.route({ reason: "direct", thinkingLevel: "high" }, ctx);
