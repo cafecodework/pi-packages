@@ -217,16 +217,25 @@ test("classification rubric prioritizes design for Astra, ordinary work for Sol,
   const { instructions, criteria } = s.calls[0].input.questions.complexity;
   assert.match(instructions, /borderline between low and medium.*choose medium/);
   assert.match(criteria.medium, /default for ordinary work/);
-  for (const task of ["routine debugging", "code reviews", "technical explanations", "configuration changes"]) {
+  for (const task of ["routine debugging", "technical explanations", "configuration changes"]) {
     assert.ok(criteria.medium.includes(task), task);
   }
-  assert.match(criteria.low, /Clearly specified mechanical tasks/);
-  assert.match(criteria.low, /short prompt or a small diff alone does not qualify/);
+  assert.match(criteria.low, /Fully specified mechanical work/);
+  assert.match(criteria.low, /approved routine commit\/push/);
+  assert.match(instructions, /routine, explicitly approved commit\/push of completed work as low/);
+  assert.match(instructions, /do not inherit the tier of the work being committed/);
+  assert.match(criteria.low, /approved routine commit\/push of completed, scoped changes/);
+  assert.match(criteria.low, /regardless of their complexity/);
+  assert.match(criteria.low, /No conflict resolution, scope selection, security review or error diagnosis/);
   assert.match(instructions, /Evaluate high first/);
   assert.match(instructions, /user-configurable.*configuration-mechanism design/);
   for (const task of ["feature design", "architecture reviews", "trade-offs", "configuration mechanisms", "security-sensitive work"]) {
     assert.ok(criteria.high.includes(task), task);
   }
+  assert.match(instructions, /review-only follow-up.*high, even for a small change/);
+  assert.match(criteria.high, /All code reviews.*including small diffs/);
+  assert.match(criteria.medium, /Code review is always high, not medium/);
+  assert.doesNotMatch(criteria.medium, /ordinary code reviews/);
   assert.match(criteria.medium, /already-specified bounded feature/);
   assert.match(criteria.medium, /configuration mechanism.*high, not medium/);
 });

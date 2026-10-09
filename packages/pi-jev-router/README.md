@@ -50,11 +50,11 @@ The following shows all supported fields. The classifier/models/efforts match th
     "medium": { "provider": "cafe", "model": "gpt-6.1-sol", "thinkingLevel": "high" },
     "low": { "provider": "cafe", "model": "gpt-6-luna", "thinkingLevel": "max" }
   },
-  "instructions": "根据 prompt 判断当前任务，recentMessages 仅用于理解指代。先判断是否需要实质设计或高风险分析，再判断是否纯机械操作，其余归 medium；不要按提示长度或关键词判定。",
+  "instructions": "根据 prompt 判断当前任务，recentMessages 仅用于理解指代。代码 review（包括小改动）归 high；已确认范围且完成的改动仅提交、push 归 low。其余先判断是否需要实质设计或高风险分析，再判断是否纯机械操作，其他归 medium；不要按提示长度或关键词判定。",
   "criteria": {
-    "high": "架构或功能方案设计、工程方案权衡、规则和配置机制重设计、复杂算法、隐蔽问题或安全关键工作。",
-    "medium": "按明确方案实现常规功能、普通排查和 review、技术解释，以及需要分析行为的现有配置调整。",
-    "low": "目标和操作完全明确，不需要诊断、设计或行为判断的机械修改，如指定错字、文案或数值替换。"
+    "high": "所有代码审查（含小改动）、架构或功能方案设计、工程方案权衡、规则和配置机制重设计、复杂算法、隐蔽问题或安全关键工作。",
+    "medium": "按明确方案实现常规功能、普通排查、技术解释，以及需要分析行为的现有配置调整。",
+    "low": "已确认范围且完成的改动仅提交、push；或无需诊断、设计、代码审查或行为判断的指定错字、文案、数值替换。"
   }
 }
 ```
@@ -77,18 +77,20 @@ The default routes and policy are:
 
 | Classification | Model | Thinking |
 |---|---|---|
-| High: substantive architecture/feature design, architecture reviews, engineering trade-offs, rule/workflow/configuration-mechanism redesign, complex algorithms, subtle bugs, security or critical refactoring | `cafe/gpt-6-astra` | `xhigh` |
-| Medium (ordinary-work default): implementing bounded specified features, common fixes, routine debugging/code reviews, technical explanations or changing existing settings | `cafe/gpt-6.1-sol` | `high` |
-| Low (narrow): explicitly specified mechanical typo, formatting or exact label/value replacements; no diagnosis or behavior judgment | `cafe/gpt-6-luna` | `max` |
+| High: all code reviews (including small diffs), substantive architecture/feature design, architecture reviews, engineering trade-offs, rule/workflow/configuration-mechanism redesign, complex algorithms, subtle bugs, security or critical refactoring | `cafe/gpt-6-astra` | `xhigh` |
+| Medium (ordinary-work default): implementing bounded specified features, common fixes, routine debugging, technical explanations or changing existing settings | `cafe/gpt-6.1-sol` | `high` |
+| Low (narrow): explicitly approved routine commit/push of completed scoped work, regardless of its complexity; or exact mechanical changes | `cafe/gpt-6-luna` | `max` |
 
-The classifier evaluates high-tier work first, mechanical low-tier work second, and otherwise uses medium. Substantive design takes precedence over the ordinary-feature/configuration category; neither prompt length nor the words “design”/“review” alone decide the tier.
+The classifier evaluates high-tier work first, mechanical low-tier work second, and otherwise uses medium. Code review always uses high, even for a small diff or a review-only follow-up. Substantive design takes precedence over the ordinary-feature/configuration category; neither prompt length nor the words “design”/“review” alone decide the tier.
 
 Examples:
 
 - “Design user-configurable model routing, reasoning levels and classification rules” → high / Astra.
-- “Review the router architecture and compare redesign options” → high / Astra.
+- “Review the router architecture and compare redesign options” or “review this small code change” → high / Astra.
 - “Assess the existing timeout/retry behavior and adjust settings” or “implement the specified name filter” → medium / Sol.
-- “Replace this exact button label/value, without other changes or behavioral judgment” → low / Luna; this includes a literal setting-value replacement.
+- “Commit and push the completed, already-scoped changes” → low / Luna, regardless of the changes' complexity.
+- “Replace this exact button label/value, without other changes or behavioral judgment” → low / Luna.
+- Resolving conflicts, choosing what to commit, security review or diagnosing Git errors is not mechanical; classify that work by its actual complexity.
 
 Small changes and short questions are not automatically low complexity. Borderline low/medium tasks favor Sol; an unclear scope alone does not justify Astra. These are classification guidelines, not guaranteed labels or keyword rules. Direct requests such as compaction use the configured low route (Luna by default).
 
