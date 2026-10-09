@@ -1,7 +1,7 @@
 {
-  "name": "pi-jev-router",
-  "version": "0.1.0",
-  "description": "Jev-powered virtual model router for Pi",
+  "name": "pi-auto-router",
+  "version": "0.2.0",
+  "description": "Configurable classifier-powered model router for Pi with optional image input",
   "license": "MIT",
   "author": "cafecodework",
   "type": "module",
@@ -22,7 +22,7 @@
     "check": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.99.0",
-    "@earendil-works/pi-coding-agent": ">=0.99.0"
+    "@earendil-works/pi-ai": ">=1.1.0",
+    "@earendil-works/pi-coding-agent": ">=1.1.0"
   }
 }

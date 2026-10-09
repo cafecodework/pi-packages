@@ -6,24 +6,11 @@ import type {
 	ModelRouteRequest,
 } from "@earendil-works/pi-coding-agent";
 
-import { DEFAULT_CONFIG, loadConfig, type RouterConfig, type RouteTarget, type Tier } from "./config.ts";
+import { loadConfig, type RouterConfig, type RouteTarget, type Tier } from "./config.ts";
 
-interface RouterState {
-	model: string;
-	// Optional only for sessions saved before user configuration was supported.
-	provider?: string;
-	thinkingLevel?: RouteTarget["thinkingLevel"];
-}
+type RouterState = RouteTarget;
 
 type RouterRequest = ModelRouteRequest<RouterState>;
-
-function savedRoute(request: RouterRequest): RouteTarget | undefined {
-	const state = request.state;
-	if (!state) return undefined;
-	const provider = state.provider ?? "cafe";
-	const legacy = Object.values(DEFAULT_CONFIG.routes).find((r) => r.provider === provider && r.model === state.model);
-	return { provider, model: state.model, thinkingLevel: state.thinkingLevel ?? legacy?.thinkingLevel ?? request.thinkingLevel };
-}
 
 function routeTo(
 	pi: ExtensionAPI,
@@ -34,12 +21,12 @@ function routeTo(
 	request.signal?.throwIfAborted();
 	const { provider, model: id } = target;
 	const model = ctx.modelRegistry.find(provider, id);
-	if (!model) throw new Error(`[pi-jev-router] Model ${provider}/${id} is not in the catalog`);
-	if (model.api === "pi-virtual") throw new Error(`[pi-jev-router] ${provider}/${id} must be a physical model`);
+	if (!model) throw new Error(`[pi-auto-router] Model ${provider}/${id} is not in the catalog`);
+	if (model.api === "pi-virtual") throw new Error(`[pi-auto-router] ${provider}/${id} must be a physical model`);
 	const thinkingLevel = clampThinkingLevel(model, target.thinkingLevel);
 	if (request.reason !== "direct") {
 		// Custom spinners repaint the working message; send them structured route data too.
-		pi.events.emit("pi-jev-router:route", { provider, model: id, thinkingLevel });
+		pi.events.emit("pi-auto-router:route", { provider, model: id, thinkingLevel });
 		ctx.ui.setWorkingMessage(`Thinking with ${thinkingLevel} effort · ${provider}/${id}`);
 	}
 	// Pi retains the current state when undefined is returned; avoid duplicate session entries.
@@ -55,13 +42,19 @@ function messageText(message: RouterRequest["messages"][number]): string {
 }
 
 async function chooseTier(request: RouterRequest, ctx: ExtensionContext, config: RouterConfig): Promise<Tier> {
-	const jev = ctx.modelRegistry.findOfType("classifier", config.classifier.provider, config.classifier.model);
-	if (!jev) return "medium";
+	const classifier = ctx.modelRegistry.findOfType("classifier", config.classifier.provider, config.classifier.model);
+	if (!classifier) return "medium";
 	const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 	if (lastUser < 0) return "medium";
-	const prompt = messageText(request.messages[lastUser]).slice(0, 16_000);
-	if (!prompt.trim()) return "medium";
-	// ponytail: last four text messages only; add a task summary if longer-range references need routing.
+	const current = request.messages[lastUser];
+	const prompt = messageText(current).slice(0, 16_000);
+	const images = classifier.input.includes("image") && Array.isArray(current.content)
+		? current.content.filter((block) => block.type === "image").map(({ type, data, mimeType }) => ({ type, data, mimeType }))
+		: [];
+	// Bound classifier uploads; fall back rather than judge a partially supplied image set.
+	if (images.length > 4 || images.reduce((bytes, image) => bytes + image.data.length, 0) > 8 * 1024 * 1024) return "medium";
+	if (!prompt.trim() && images.length === 0) return "medium";
+	// shortcut: last four text messages only; add a task summary if longer-range references need routing.
 	const recentMessages = request.messages.slice(0, lastUser)
 		.filter((message) => message.role === "user" || message.role === "assistant")
 		.map((message) => ({ role: message.role, content: messageText(message) }))
@@ -69,9 +62,10 @@ async function chooseTier(request: RouterRequest, ctx: ExtensionContext, config:
 		.slice(-4)
 		.map((message) => ({ ...message, content: message.content.slice(-2_000) }));
 	const result = await ctx.modelRegistry.classify(
-		jev,
+		classifier,
 		{
 			state: { prompt, recentMessages },
+			...(images.length ? { images } : {}),
 			questions: {
 				complexity: {
 					type: "choice",
@@ -97,9 +91,9 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("model_select", (_event, ctx) => ctx.ui.setWorkingMessage());
 
 	pi.registerVirtualModel<RouterState>({
-		provider: "jev",
+		provider: "router",
 		id: "auto",
-		name: "Auto (Jev)",
+		name: "Auto Router",
 		thinkingLevels: ["low", "medium", "high", "xhigh"],
 		contextWindow: 272_000,
 		maxTokens: 128_000,
@@ -107,7 +101,7 @@ export default function (pi: ExtensionAPI): void {
 			request.signal?.throwIfAborted();
 			if (request.reason === "direct") return routeTo(pi, request, ctx, config.routes.low);
 			if (request.reason !== "user") {
-				const saved = savedRoute(request);
+				const saved = request.state;
 				const recover = (response: RouterRequest["previous"]): RouteTarget | undefined => {
 					if (!response) return undefined;
 					const target = [saved, config.routes.medium, config.routes.high, config.routes.low].find(
