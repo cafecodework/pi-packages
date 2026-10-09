@@ -9,7 +9,7 @@ const remoteScripts = ['setup.mjs', 'run.mjs', 'room-setup.mjs', 'room-run.mjs',
 export function releaseFiles(tags) {
  if (!tags.length || tags.some(tag=>!platforms.includes(tag))) throw Error('Invalid release platforms');
  return ['package.json','README.md','INSTALL.md','AI_INSTALL.md','LICENSE','THIRD-PARTY-NOTICES.txt','dist/relay/build.json',
-  ...['index','connection-warning','file-commands','local-relay','local-relay-go','cafe','cafe-actions','cafe-client','cafe-render','cafe-approvals','cafe-owner-client','thinking-capability'].map(name=>`dist/extension/${name}.js`),'dist/protocol/index.js',
+  ...['index','connection-warning','file-commands','private-json','local-relay','local-relay-go','cafe','cafe-actions','cafe-client','cafe-render','cafe-approvals','cafe-owner-client','thinking-capability'].map(name=>`dist/extension/${name}.js`),'dist/protocol/index.js',
   ...tags.map(tag=>`dist/relay/bin/${tag}/pi-cafe-relay${tag.startsWith('windows')?'.exe':''}`),
   ...runtimeScripts.map(name=>`scripts/${name}`),...remoteScripts.map(name=>`scripts/remote/${name}`),...['build.mjs','assets.mjs','hash-router-only.mjs'].map(name=>`scripts/build-tools/${name}`),'scripts/build-tools/licenses/metadata-only.json'].sort();
 }

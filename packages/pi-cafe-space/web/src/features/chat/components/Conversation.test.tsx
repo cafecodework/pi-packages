@@ -48,7 +48,44 @@ it('keeps orphan results at their transcript position with honest labels and sep
   const s: SessionSnapshot = { ...snapshot, tools: [], messages: [snapshot.messages[1]!, { ...snapshot.messages[0]!, id: 'second', parts: [{ index: 0, type: 'text', text: 'one' }] }, { ...snapshot.messages[0]!, id: 'third', parts: [{ index: 0, type: 'text', text: 'two' }] }] };
   const { container } = render(<Conversation snapshot={s} scope={scope} readOnly />);
   expect([...container.querySelectorAll('[data-source-id]')].map(n => n.getAttribute('data-source-id'))).toEqual([s.messages[0]!.id, 'second', 'third']);
-  expect(screen.getByText('Parent reply unavailable')).toBeInTheDocument();
+  expect(screen.getByText('The calling message is outside this view; the tool execution is retained.')).toBeInTheDocument();
+});
+it('renders nested tool failures inside codemode and keeps child disclosure stable through updates', async () => {
+  await i18n.changeLanguage('en');
+  const s: SessionSnapshot = { ...snapshot, historyTruncated: false, messages: [{ ...snapshot.messages[0]!, partsTruncated: false, parts: [{ index: 0, type: 'tool-call', toolCallId: 'code', toolName: 'codemode', argsText: '{}' }] }], tools: [
+    { toolCallId: 'code', toolName: 'codemode', argsText: '{}', output: '', status: 'complete' },
+    { toolCallId: 'code/1', toolName: 'read', argsText: '{"path":"missing.md"}', output: 'ENOENT: missing.md', status: 'error' },
+    { toolCallId: 'code/2', toolName: 'ls', argsText: '{}', output: 'file.md', status: 'complete' },
+  ] };
+  const { container, rerender } = render(<Conversation snapshot={s} scope={scope} />);
+  const parent = container.querySelector<HTMLDetailsElement>('[data-tool-id="code"]')!;
+  const child = parent.querySelector<HTMLDetailsElement>('[data-tool-id="code/1"]')!;
+  expect(parent.open).toBe(true); expect(child.open).toBe(true);
+  expect(child).toHaveTextContent('ENOENT: missing.md'); expect(child).toHaveTextContent('Failed');
+  expect(container.querySelectorAll('[data-message-role="tool"]')).toHaveLength(0);
+  expect(screen.queryByText(/calling message is outside/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/shortened history/)).not.toBeInTheDocument();
+  fireEvent.click(child.querySelector('summary')!); expect(child.open).toBe(false);
+  rerender(<Conversation snapshot={{ ...s, tools: s.tools.map(t => t.toolCallId === 'code/2' ? { ...t, output: 'updated file.md' } : t) }} scope={scope} />);
+  expect(container.querySelector('[data-tool-id="code/1"]')).toBe(child); expect(child.open).toBe(false);
+  expect(container.querySelectorAll('[data-tool-id]')).toHaveLength(3);
+  const rawSummaries = [...parent.querySelectorAll('details:not([data-tool-id]) > summary')];
+  expect(rawSummaries.length).toBeGreaterThan(0);
+  for (const summary of rawSummaries) {
+    expect(summary.firstElementChild?.tagName.toLowerCase()).toBe('svg');
+    expect(summary.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(summary.firstElementChild).toHaveAttribute('focusable', 'false');
+  }
+});
+it('shows one real truncation notice and does not label standalone execution as lost content', async () => {
+  await i18n.changeLanguage('en');
+  const s: SessionSnapshot = { ...snapshot, historyTruncated: true, messages: snapshot.messages.map(m => ({ ...m, partsTruncated: true })), tools: [] };
+  const { rerender } = render(<Conversation snapshot={s} scope={scope} />);
+  expect(screen.getAllByText(/This page shows a shortened history/)).toHaveLength(1);
+  rerender(<Conversation snapshot={{ ...snapshot, historyTruncated: false, messages: [], tools: [{ toolCallId: 'orphan', toolName: 'read', argsText: '{}', output: 'retained', status: 'complete' }] }} scope={scope} />);
+  expect(screen.queryByText(/shortened history/)).not.toBeInTheDocument();
+  expect(screen.getAllByText(/calling message is outside/)).toHaveLength(1);
+  expect(screen.queryByText('Association unavailable')).not.toBeInTheDocument();
 });
 it('renders markdown without raw HTML, unsafe links, remote image requests or inline styles', async () => {
   const text = '# Title\n\n<script>window.bad = true</script>\n\n[bad](javascript:alert%281%29) [good](https://example.com/) ![private](https://example.com/tracker.png)\n\n```js\nconst x = 1;\n```';

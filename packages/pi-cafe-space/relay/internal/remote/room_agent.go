@@ -82,7 +82,8 @@ func(s *remoteSession)roomAuthentication(raw []byte)error{
  }
  q.Account=""
  connection,err:=s.agent.backend.Hub.Join(s,"room-guest:"+s.identity.ID);if err!=nil{return err}
- s.mu.Lock();if s.closed{s.mu.Unlock();s.agent.backend.Hub.Leave(connection);return errClosed};s.connection=connection;s.identity=identity;if account.Subject!=""{s.accountSubject=account.Subject;s.accountSession=account.Session;s.accountPublicKey=account.PublicKey;s.accountUntil=time.Unix(account.Expires,0);s.accountChecked=time.Now()};s.roomVerified=true;s.mu.Unlock()
+ s.mu.Lock();if s.closed{s.mu.Unlock();s.agent.backend.Hub.Leave(connection);return errClosed};s.connection=connection;s.identity=identity;if account.Subject!=""{s.accountSubject=account.Subject;s.accountSession=account.Session;s.accountPublicKey=account.PublicKey;s.accountUntil=time.Unix(account.Expires,0);s.accountChecked=time.Now()};s.roomVerified=true;s.roomVerifiedAt=time.Now();s.mu.Unlock()
+ s.trace.add("handshake","ROOM_VERIFIED")
  return s.sendJSON(map[string]any{"type":"room.authenticated","id":s.identity.ID,"roomKey":s.roomKey,"deviceId":"room","roomId":"main","userId":s.identity.UserID,"visitorName":s.identity.Name,"identityKind":s.identity.Kind,"accountId":s.identity.AccountID,"name":s.agent.cfg.DeviceName,"role":s.identity.Role,"managed":s.agent.cfg.RoomManagement&&s.agent.backend.Manager!=nil})
 }
 func(a *Agent)invalidateRoom(){

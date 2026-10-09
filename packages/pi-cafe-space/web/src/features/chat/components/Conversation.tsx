@@ -34,13 +34,10 @@ function Message() {
   useEffect(() => { setCopy(null); }, [text]);
   const id = useAuiState(s => s.message.metadata.custom.sourceId);
   const role = useAuiState(s => s.message.metadata.custom.sourceRole);
-  const incomplete = useAuiState(s => s.message.metadata.custom.incomplete === true);
-  const projectionOnly = useAuiState(s => s.message.metadata.custom.projectionOnly === true);
   const label = role === 'user' ? labels.user : role === 'system' ? labels.system : role === 'tool' ? labels.tool : labels.assistant;
   return <MessagePrimitive.Root className={styles.message} data-source-id={typeof id === 'string' ? id : undefined} data-message-role={typeof role === 'string' ? role : undefined}>
-    <header className={styles.messageHeader}>{label}{projectionOnly && <span>{labels.associationMissing}</span>}</header>
+    <header className={styles.messageHeader}>{label}</header>
     <MessagePrimitive.Parts components={parts} unstable_showEmptyOnNonTextEnd={false} />
-    {incomplete && <small className={styles.warning}>{labels.incomplete}</small>}
     {text && <footer className={styles.messageActions}><Button variant="quiet" aria-label={t('copyMessage')} onClick={() => { void navigator.clipboard?.writeText(text).then(() => setCopy('copied'), () => setCopy('copyFailed')); if (!navigator.clipboard) setCopy('copyFailed'); }}><Icon name={copy === 'copied' ? 'check' : 'copy'} />{t('copyMessage')}</Button>{copy && <span role="status">{t(copy)}</span>}</footer>}
   </MessagePrimitive.Root>;
 }
@@ -48,6 +45,7 @@ function Transcript({ readOnly, empty, snapshot, connected, navigation }: { read
   const labels = useChatLabels();
   return <ThreadPrimitive.Root className={styles.thread}>
     {readOnly && <p className={styles.notice}>{labels.history}</p>}
+    {(snapshot.historyTruncated || snapshot.messages.some(message => message.partsTruncated)) && <p className={styles.notice}>{labels.incomplete}</p>}
     {empty && <div className={styles.empty}><Icon name="message" /><h2>{labels.emptyConversation}</h2><p>{labels.emptyConversationHelp}</p></div>}
     <div className={styles.transcriptArea} data-empty={empty}>
     <div className={styles.messages} data-empty={empty} role="log" aria-label={labels.conversation} aria-live="off">

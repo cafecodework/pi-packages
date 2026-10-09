@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type RequestListener } from 'node:http';
 import { mkdtemp, writeFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -6,7 +6,7 @@ import { afterEach, expect, it } from 'vitest';
 import { parseCafeApprovals, requestCafeApprovals } from './cafe-owner-client.js';
 const cleanups:Array<()=>Promise<unknown>>=[];afterEach(async()=>{for(const cleanup of cleanups.splice(0).reverse())await cleanup();});
 const value=()=>({version:1,enabled:true,revision:2,hostId:'pi-a',requests:[{id:'a'.repeat(43),hostId:'pi-a',room:'main',state:'pending',name:'拿铁#abcd1234',expiresAt:Date.now()+90000}]});
-async function fixture(handler:Parameters<typeof createServer>[0]){
+async function fixture(handler:RequestListener){
  const server=createServer(handler);await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));cleanups.push(()=>new Promise<void>((r,j)=>server.close(e=>e?j(e):r())));const port=(server.address() as {port:number}).port;const directory=await mkdtemp(join(tmpdir(),'cafe-owner-ipc-'));cleanups.push(()=>rm(directory,{recursive:true,force:true}));const file=join(directory,'credentials.json');await writeFile(file,JSON.stringify({version:1,port,hostToken:'h'.repeat(43),clientToken:'synthetic-owner-token'}),{mode:0o600});return{config:{relayUrl:`ws://127.0.0.1:${port}/ws`,roomId:'main',peerId:'pi-a',token:'h'.repeat(43),credentialsFile:file},directory};
 }
 it('uses both real credential fields over fixed loopback IPC without an Origin or token in body',async()=>{

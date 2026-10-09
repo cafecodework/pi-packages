@@ -94,7 +94,7 @@ func failHTTP(w http.ResponseWriter,status int,code string){reply(w,status,map[s
 func(c *Cloud) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
 		path:=r.URL.Path
-		if path!="/room/host"&&path!="/room/join"&&path!="/api/config"&&path!="/ws"&&!strings.HasPrefix(path,"/remote/")&&!strings.HasPrefix(path,"/api/remote/")&&path!="/api/workspace"{next.ServeHTTP(w,r);return}
+		if path!="/room/host"&&path!="/room/join"&&path!="/api/room/status"&&path!="/api/config"&&path!="/ws"&&!strings.HasPrefix(path,"/remote/")&&!strings.HasPrefix(path,"/api/remote/")&&path!="/api/workspace"{next.ServeHTTP(w,r);return}
 		remoteHeaders(w)
 		if r.URL.RawPath!=""||r.URL.EscapedPath()!=path||r.URL.RawQuery!=""{failHTTP(w,400,"INVALID_REQUEST");return}
 		cfg,ok:=c.snapshot();if !ok{failHTTP(w,503,"REMOTE_UNAVAILABLE");return}
@@ -105,6 +105,7 @@ func(c *Cloud) Wrap(next http.Handler) http.Handler {
 			reply(w,200,map[string]any{"protocolVersion":1,"wsPath":"/ws","defaultRoom":"main","remoteAccess":true,"managedSessions":true,"roomAccess":cfg.RoomAccess,"accountLogin":cfg.RoomAccess&&cfg.AccountIssuer!=""})
 		case "/room/host":c.roomHost(w,r,cfg)
 		case "/room/join":c.roomBrowser(w,r,cfg)
+		case "/api/room/status":c.roomStatus(w,r,cfg)
 		case "/api/remote/devices":if cfg.RoomAccess{failHTTP(w,404,"ROOM_LINK_REQUIRED");return};c.devices(w,r,cfg)
 		case "/remote/agent":if cfg.RoomAccess{failHTTP(w,404,"ROOM_LINK_REQUIRED");return};c.agent(w,r,cfg)
 		case "/remote/connect":if cfg.RoomAccess{failHTTP(w,404,"ROOM_LINK_REQUIRED");return};c.browser(w,r,cfg)

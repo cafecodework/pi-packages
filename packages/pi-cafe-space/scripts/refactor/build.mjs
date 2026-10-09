@@ -118,7 +118,7 @@ export async function buildCandidate() {
     await writeFile(join(source, 'tsconfig.json'), JSON.stringify({ extends: join(root, 'tsconfig.json'), compilerOptions: { rootDir: './src', outDir: '../ts', sourceMap: false, declaration: false }, include: ['./src/**/*.ts'], exclude: ['**/*.test.ts'] }));
     await rm(join(output, 'ts'), { recursive: true, force: true });
     console.log(run(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', join(source, 'tsconfig.json')]));
-    const terminal = await bundle({ entryPoints: [join(source, 'src/extension/cafe-render.ts')], outfile: join(output, 'ts/extension/cafe-render.js'), bundle: true, format: 'esm', platform: 'node', target: 'node22', treeShaking: true, metafile: true, logLevel: 'warning' });
+    const terminal = await bundle({ entryPoints: [join(source, 'src/extension/cafe-render.ts')], outfile: join(output, 'ts/extension/cafe-render.js'), bundle: true, external: ['@earendil-works/pi-tui'], format: 'esm', platform: 'node', target: 'node22', treeShaking: true, metafile: true, logLevel: 'warning' });
     for (const input of Object.keys(terminal.metafile.inputs)) ids.add(resolve(input));
     await writeFile(join(output, 'THIRD-PARTY-NOTICES.txt'), await notices(ids));
     const record = { format: 'pi-cafe-build-v1', ...identity, sha256: sha(await readFile(binary)), goVersion: run('go', ['version']).trim(), goDigest: await treeDigest(join(root, 'relay')), nodeVersion: process.version, binary: `bin/${tag}/${exe}`, tsDigest: await treeDigest(join(output, 'ts')), createdAt: new Date().toISOString() };

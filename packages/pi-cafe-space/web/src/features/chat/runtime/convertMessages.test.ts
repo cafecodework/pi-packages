@@ -74,5 +74,6 @@ it('orphan execution is a transcript live-edge data item, not a guessed assistan
   const result = convertMessages({ ...snapshot, messages: [] }, scope);
   expect(result).toHaveLength(2);
   expect(result.map(m => m.metadata?.custom?.projectionOnly)).toEqual([true, true]);
+  expect(result.map(m => m.metadata?.custom?.incomplete)).toEqual([false, false]);
   expect(result.map(m => typeof m.content === 'string' ? null : view(m.content[0]!).association)).toEqual(['missing-parent', 'missing-parent']);
 });

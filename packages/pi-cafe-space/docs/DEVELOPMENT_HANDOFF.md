@@ -60,6 +60,54 @@ node --test --test-concurrency=1 scripts/refactor/*.test.mjs scripts/refactor/lo
 - **不要直接运行 `manual-install.mjs` 或 `local-registration/setup.mjs prepare/activate` 来迁移。** 它们保留了原电脑的一次性安装路径/旧包哈希和 owner 前置条件，不是可重复的通用安装命令；`local-registration/smoke.mjs` 也需先检查本机路径。
 - 项目级 `.pi/skills/shadcn`、`.pi/skills/migrate-radix-to-base` 与 `skills-lock.json` 是已安装的开发参考，随源码保留；原电脑全局 Café/assistant-ui 等 skills 不在本仓库。
 
+## Windows 凭据兼容性与首次使用回归（2026-10-09）
+
+- 本机 Node 23.11.0 的 Windows 路径 `lstat` 返回 `dev=0`，同一文件的 `fstat` 返回真实卷 ID；BigInt 本身不能修复此差异。`private-json.ts` 从父目录句柄取得卷 ID，与文件句柄比较；保留 BigInt 文件编号、普通文件/权限检查、16 KiB 有界读取、读取期间变更检测和失败关闭。host、owner、room launcher 共用此实现，不忽略 dev，也不降级到默认 token。
+- `cafe-render` 仍打包二维码依赖，但 Pi TUI 使用宿主 SDK，不再把另一版 TUI 打进扩展；未跳过依赖许可证检查。
+- Windows Node 22.23.2 / 23.11.0 的凭据与 owner 专项各 14 通过、1 个 POSIX 权限检查跳过；TypeScript check、正式 Go/React pack、安装工具 4 项通过。主 TS 全量本次为 563 通过、1 跳过、1 失败（`cafe-render.test.ts` 的 12×24 终端二维码解码，未修改或隐瞒该失败）。
+- 持久化回归入口 `scripts/remote/onboarding-test.mjs` 已修正 Windows PATH，额外验证发行包 room launcher 的私有配置读取。必须用**日常 Pi 实际使用的 Node**执行，而不只验证 installer 的 Node。真实 Pi 0.99.1 + Chrome + Node 23.11.0 对新发行包及正式安装路径均通过：初始化前拒绝接入、网页初始化、原 Pi 自动接入、第二浏览器登录、网关重启后重连；0 provider 请求。临时凭据只用于隔离服务。
+- 本机经用户授权重置：正常入口 `http://127.0.0.1:37891/`，新安装 `AppData/Local/CafeSpace/versions/0.1.0-69f2af2d`。旧程序、状态、旧试用和 adapter 已移入用户私有备份 `CafeSpaceBackups/before-fresh-KfvhE4`，不复用旧令牌/房间身份；其他 Pi 配置及历史保留。新安装不需要 `Pi.cmd`，用普通 `pi` 即可。
+- 正式端口已验证初始化页面，实际全局 Pi 登记（非 `-e` 覆盖）可达到 `setup required`；未替用户初始化。用户设置新令牌后才可完成这个新房间的真实接入/公网第二设备验收。未设置开机自启、未 commit/push 本轮修改。构建资产检查在 Node 23 下的类似兼容性尚未修复，发行构建仍使用已验证的 Node 22 工具链；不等同于预构建包需要用户换 Node。
+
+## 手机同步阶段断线修正（2026-10-09）
+
+- 用户手机显示 `synchronizing / ROOM_CONNECTION_LOST / sctp-failure`；本机受限诊断接口显示该次连接在 transport selected 后 5149ms 被 `AUTH_EXPIRED` 主动关闭，随后才关闭 DTLS/DataChannel。不能据此把手机网络或 SCTP 实现认定为根因。
+- 确认并修正 `remoteSession.expired()` 的阶段计时：房间密码验证和 client hello 之前共用 selectedAt 起算的 5 秒预算；现在验证成功记录 roomVerifiedAt，给 hello 独立 5 秒。保留未认证超时、一次密码尝试、账号过期和信令授权过期。新增安全日志阶段 ROOM_VERIFIED / HELLO_RECEIVED / HELLO_ACCEPTED，不记录凭据。
+- 新回归先红后绿；Go 全量 tests/vet、正式 pack 通过。用户明确同意重启后，正式安装更新至 `AppData/Local/CafeSpace/versions/0.1.0-28800cd4`，候选 `pack-Fl2YYl`；此前版本保留。凭据、房间身份/链接、其他 Pi settings/models 字节检查通过，没有结束普通 Pi。
+- 正式公网入口的独立桌面 Chrome 只读接入成功，收到真实会话快照；另将两个握手发送分别人为延迟 2600ms，仍成功接入。网关诊断记录三个握手阶段后正常 VISITOR_LEFT。0 provider 请求；**真实手机仍待用户重试，不能以桌面延迟测试冒充手机验收**。本轮未再次执行 race、未 commit/push。
+
+## 扫码后先检查房间在线状态（2026-10-09，待公网部署）
+
+- 旧行为在提交密码后才打开信令连接，离线提示过晚。新增云端 `POST /api/room/status`：只接收 roomKey，返回单个 online 布尔值；同源 JSON、小请求限制、连接准入和 no-store；不接收密码/账号令牌，不创建访客、WebRTC 或消耗房间加入次数。
+- 公网 RoomLogin 在身份选择和密码表单之前先查询状态。离线显示“房间已离线”及重新检查按钮；查询失败显示“暂时无法确认”，不当作离线/密码错误。取消旧房间请求，忽略导航后的迟到结果。检查通过仍须完成原来的签名、密码和业务握手，不能作为授权或连接成功证明。
+- 云端只保存在线登记，不能区分有效但离线、未登记或已失效的 key；界面明确提示“房主未连接或链接已失效”，不捏造“房间不存在”。在线检查是进入页面时的快照，随后掉线仍由原连接流程报告。
+- 专项 14 项、Web 全量 247 项、Web TypeScript 检查、Go 全量 tests/vet 通过。新增云端测试覆盖真实注册/离线、未知 key、同源/方法/body 校验、服务不可用与不分配访客资源。
+- **尚未更新公网服务器及它提供的网页**；只重启用户电脑网关不会生效。本轮未重启任何现有服务、未 commit/push，未把本机单测当成手机在线验收。
+
+## codemode 内部工具与重复缺失提示（2026-10-09，本机已部署／公网待部署）
+
+- 对用户 `deepctrls-sight` 会话做只读快照统计，确认内部 read/ls 的参数、结果、状态保留，但没有独立 assistant tool-call/tool-result 消息。核实原生 Pi `core/nested-tool-calls.js` 的 ID 规则为 `<callerId>/<positive integer>`；不是工具名/时间推测。
+- Web 转换器将规范 ID 的内部执行归入当前 scope 中唯一的 codemode 调用卡片，保留 ENOENT/错误、输出、参数、作用域 key 和折叠状态；已有直接调用归属优先，重复 ID、歧义或冲突 hint 不强行归并。不修改原生 JSONL，不重新执行工具，不扩展 wire schema。
+- 已知边界：当前 wire 不包含 parentToolCallId，因此这个兼容处理只识别 codemode 父调用；其他嵌套工具及已裁掉父调用的记录继续独立显示。不按任意 ID 前缀或工具名称猜测关系。
+- 独立执行不再自动标 incomplete；删去重复“关联信息缺失”标题。真正的 historyTruncated/partsTruncated 在会话顶部提示一次，未找到调用消息的记录只保留一条准确说明。参数校验保护保留，说明移至参数详情内。
+- 转换/UI 专项 27 项，Web 全量 260 项及 Web TypeScript 检查通过。再次用用户当前只读快照验算：4 条 `.trellis` 内部执行成功归组，0 条仍被当成孤立记录；当时原 3 条 ENOENT 已不在当前快照，错误保留由回归 fixture 验证，不声称重放了原始会话。
+- 正式 pack 通过：Windows 候选 `pack-W1Eicg`，归档 SHA256 `6a800197d989460a3bbd8b8082c280566713cb458f3d8c71f6622db02545f5cb`，Web digest `6ad8d76753414ed06794170bd557caded40b147b01f43f2e770f12fa1cdcedf5`。包含上述离线预检改动。用户授权后本机升级至 `AppData/Local/CafeSpace/versions/0.1.0-6a800197`；旧版本及升级备份 `CafeSpaceBackups/before-nested-tools-kFfMFA` 保留。owner/监听核验后仅停止自有网关进程，凭据、身份、链接及其他 Pi 配置保留。真实 Chrome 登录并选择用户项目会话通过：65 个工具卡片、14 个内部卡片，旧警告 0，分享面板正常，pageerror 0、provider 请求 0。未部署公网或 commit/push；公网需在目标平台构建并更新所提供的 Web，Windows 归档不能直接当 Linux 发布包。
+
+## 工具详情展开箭头对齐（2026-10-09，本机已部署）
+
+- rawData summary 的 `display:list-item` / outside marker 使箭头越出内容区域；完整输出、参数、diff 原始输出统一使用已有 SVG chevron + flex 行内排列，open 状态旋转 90°，保留原生 details 键盘/点击行为。不修改外层工具标题或全局 summary 样式。
+- Conversation 8 项及 TypeScript 检查通过；Chrome 隔离样式验收覆盖 1440×900、1280×720、390×844、320×844、嵌套行和 Enter/Space toggle。正式 pack 通过，候选 `pack-me1YZP`，SHA256 `b6af2d782e1e5c791a48ecd5e9735bf0220cec30fa53ad87248bf5deacf231ec`。
+- 本机升级为 `AppData/Local/CafeSpace/versions/0.1.0-b6af2d78`，备份 `CafeSpaceBackups/before-disclosure-VlsKJa`。实际本地页面 107 个工具详情行 SVG 均在内容区域内且垂直居中；登录、当前项目会话、分享面板通过，无 pageerror、无 provider 请求。令牌、房间链接/身份、普通 Pi 保留。未更新公网、未执行 Firefox/Safari 视觉验收、未 commit/push。
+
+## 待调研：Pi 1.1.0 程序状态（OSC 7501）
+
+- [ ] 核验 Pi 1.1.0 与当前扩展、managed RPC 的兼容性，以及 `agent_settled.aborted` 对取消/完成/最终失败展示的价值。
+- [ ] 核验公开 SDK 对等待确认、输入、登录和上下文压缩的状态覆盖，尤其重试结束、断线重连和会话切换时的语义。
+- [ ] OSC 7501 暂仅作为终端集成候选：优先保留 Pi 原生自动探测，不全局强制 `PI_PROGRAM_STATUS=1`；Web 继续使用结构化事件，不为此新增 stdout 拦截或 PTY，不向 RPC JSON 流混入控制序列。
+- [ ] 若未来托管终端，再评估 OSC 消费、安全过滤与消息隐私。状态提示不作为授权依据或任务成功验收。
+
+状态：仅待调研，未实施、未承诺完整状态覆盖。参考 Pi 1.1.0 `docs/terminal-setup.md#program-status`、`docs/environment-variables.md` 和 `dist/modes/interactive/program-status-reporter.js`。
+
 ## 接下来从哪里看
 
 | 范围 | 入口 |

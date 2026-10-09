@@ -1,5 +1,5 @@
 import { Agent, request } from 'node:http';
-import { lstat, open } from 'node:fs/promises';
+import { readPrivateJSON } from './private-json.js';
 import { localCafeURL, type CafeConfig } from './cafe-client.js';
 
 export interface CafeApplication { id: string; name: string; hostId: string; expiresAt: number }
@@ -23,15 +23,11 @@ export function parseCafeApprovals(value: unknown, peerId: string): CafeApproval
 }
 async function ownerCredentials(config: CafeConfig, port: number): Promise<{ owner: string; host: string }> {
   if (!config.credentialsFile) throw Error('LOCAL_OWNER_REQUIRED');
-  const info = await lstat(config.credentialsFile);
-  if (!info.isFile() || info.isSymbolicLink() || info.size > 16384 || process.platform !== 'win32' && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid?.())) throw Error('LOCAL_OWNER_REQUIRED');
-  const file = await open(config.credentialsFile,'r');
   try {
-    const checked = await file.stat(); if (checked.ino !== info.ino || checked.dev !== info.dev || checked.size > 16384) throw Error('LOCAL_OWNER_REQUIRED');
-    const v = JSON.parse(await file.readFile('utf8'));
+    const v = readPrivateJSON(config.credentialsFile);
     if (v.version !== 1 || v.port !== port || !token(v.hostToken) || !text(v.clientToken,256) || v.clientToken.length < 6 || v.clientToken.trim() !== v.clientToken || v.clientToken === v.hostToken) throw Error('LOCAL_OWNER_REQUIRED');
     return { owner:v.clientToken, host:v.hostToken };
-  } finally { await file.close(); }
+  } catch { throw Error('LOCAL_OWNER_REQUIRED'); }
 }
 /** Authenticated local IPC only; credentials never leave loopback or reach the model. */
 export async function requestCafeApprovals(config: CafeConfig, action: CafeDecision, signal?: AbortSignal): Promise<CafeApprovals> {

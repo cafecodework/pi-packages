@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, lstatSync, openSync, fstatSync, readFileSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { readPrivateJSON } from './private-json.js';
 import { homedir } from "node:os";
 import { open, stat, unlink } from "node:fs/promises";
 import { dirname, resolve, isAbsolute, join } from "node:path";
@@ -33,17 +34,10 @@ export function localCredentialFile(relayUrl: string, environment: NodeJS.Proces
 }
 
 export function readLocalHostToken(path: string, relayUrl: string): string | null {
-  let info;
-  try { info = lstatSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw Error('Cannot read Café Space credentials'); }
-  if (!info.isFile() || info.size > 16384 || process.platform !== 'win32' && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid?.())) throw Error('Café Space credentials must be private');
-  const fd = openSync(path, 'r');
-  try {
-    const actual = fstatSync(fd);
-    if (actual.ino !== info.ino || actual.dev !== info.dev || actual.size > 16384) throw Error('Café Space credentials changed');
-    const value = JSON.parse(readFileSync(fd, 'utf8')) as Record<string, unknown>;
-    if (value.version !== 1 || value.port !== Number(new URL(relayUrl).port || 80) || typeof value.hostToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value.hostToken)) throw Error('Invalid Café Space credentials');
-    return value.hostToken;
-  } finally { closeSync(fd); }
+  let value: Record<string, unknown>;
+  try { value = readPrivateJSON(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  if (value.version !== 1 || value.port !== Number(new URL(relayUrl).port || 80) || typeof value.hostToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value.hostToken)) throw Error('Invalid Café Space credentials');
+  return value.hostToken;
 }
 
 function hasUrlUserInfo(value: string): boolean {

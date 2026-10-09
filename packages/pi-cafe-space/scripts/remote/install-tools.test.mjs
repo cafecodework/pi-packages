@@ -22,7 +22,7 @@ test('server origin and IPv4 parameters are explicit and cannot inject configura
 test('service templates preserve argument boundaries and user-owned state',()=>{
  const prefix='/tmp/Package A&B',state='/tmp/State % Local',credentials='/tmp/Creds/key.json',node='/test/node';
  const mac=serviceFiles('darwin',prefix,state,credentials,37891,node,'/home/test');assert(mac.content.includes('Package A&amp;B'));assert(mac.content.includes('<string>--credentials</string>'));assert(!mac.content.includes('password'));
- const linux=serviceFiles('linux',prefix,state,credentials,37891,node,'/home/test');assert(linux.content.includes('State %% Local'));assert(linux.content.includes('NoNewPrivileges=yes'));assert(linux.path.includes('/systemd/user/'));
+ const linux=serviceFiles('linux',prefix,state,credentials,37891,node,'/home/test');assert(linux.content.includes('State %% Local'));assert(linux.content.includes('NoNewPrivileges=yes'));assert(linux.path.replaceAll('\\','/').includes('/systemd/user/'));
  const win=serviceFiles('win32',"C:\\User's\\Package",state,credentials,37891,node);assert.equal(win.path,null);assert(win.content.includes("User''s"));
 });
 test('an existing versioned installation is never overwritten',async()=>{

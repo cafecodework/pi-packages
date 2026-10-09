@@ -1,4 +1,5 @@
 import { CafeIdentityChoice, CafeIdentityChip, useCafeAccount } from './CafeIdentity';
+import { RoomAvailability } from './RoomAvailability';
 import { savedNickname, validNickname } from '../../services/remote/visitorIdentity';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { RoomStage } from '../../services/remote/RoomSocket';
@@ -33,6 +34,9 @@ export function RoomLanding({owner}:{owner:AppOwner}) {
   </section>;
 }
 export function RoomLogin({ owner, roomKey }: { owner: AppOwner; roomKey: string }) {
+  return <RoomAvailability roomKey={roomKey}><RoomPasswordForm key={roomKey} owner={owner} roomKey={roomKey} /></RoomAvailability>;
+}
+function RoomPasswordForm({ owner, roomKey }: { owner: AppOwner; roomKey: string }) {
   const { i18n } = useTranslation(); const zh = i18n.language.startsWith('zh');
   const connection = useCollabStore(owner.store, state => state.connection.status);
   const identity=useCafeAccount(owner);const account=identity.enabled&&identity.mode==='account'?identity.account:null;

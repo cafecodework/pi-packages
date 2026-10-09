@@ -23,6 +23,7 @@ type remoteSession struct {
 	roomKey, browserNonce string
 	roomRevision uint64
 	roomVerified, roomAttempted bool
+	roomVerifiedAt time.Time
 	accountSubject, accountSession, accountPublicKey string
 	accountUntil, accountChecked time.Time
 	agent *Agent
@@ -48,7 +49,13 @@ func newRemoteSession(a *Agent,l *wsLink,p Identity,mode string,ice []ICEServer)
 	now:=time.Now();return &remoteSession{trace:trace,agent:a,link:l,identity:p,mode:mode,ice:ice,created:now,authorizedUntil:now.Add(45*time.Second),in:make(chan []byte,128),out:make(chan []byte,128),stop:make(chan struct{}),selected:make(chan struct{}),hosts:map[string]bool{}}
 }
 func(s *remoteSession) renew(){s.mu.Lock();s.authorizedUntil=time.Now().Add(45*time.Second);s.mu.Unlock()}
-func(s *remoteSession) expired(now time.Time)bool{s.mu.Lock();defer s.mu.Unlock();return !s.accountUntil.IsZero()&&!now.Before(s.accountUntil)||now.After(s.authorizedUntil)||s.chosen==""&&now.Sub(s.created)>30*time.Second||s.chosen!=""&&!s.authenticated.Load()&&now.Sub(s.selectedAt)>5*time.Second}
+func(s *remoteSession) expired(now time.Time)bool{
+ s.mu.Lock();defer s.mu.Unlock()
+ handshakeStart:=s.selectedAt
+ // Room password verification precedes hello; each stage has its own bounded deadline.
+ if s.roomVerified { handshakeStart=s.roomVerifiedAt }
+ return !s.accountUntil.IsZero()&&!now.Before(s.accountUntil)||now.After(s.authorizedUntil)||s.chosen==""&&now.Sub(s.created)>30*time.Second||s.chosen!=""&&!s.authenticated.Load()&&now.Sub(handshakeStart)>5*time.Second
+}
 func(s *remoteSession) isTransport(mode string)bool{s.mu.Lock();defer s.mu.Unlock();return !s.closed&&s.chosen==mode}
 func(s *remoteSession) selectTransport(mode string)error{
  s.trace.add("selection","requested")
@@ -127,6 +134,7 @@ func(s *remoteSession) handle(raw []byte)error{
 	m,err:=protocol.DecodeWire(raw);if err!=nil{return err}
 	if !s.authenticated.Load(){
 		if m["type"]!="hello"||m["peerRole"]!="client"||m["roomId"]!=s.identity.Room{return errors.New("remote client hello required")}
+		s.trace.add("handshake","HELLO_RECEIVED")
 		m["token"]=s.agent.backend.ClientToken;m["peerId"]="remote-"+s.identity.ID
 		raw,err=protocol.EncodeWire(m);if err!=nil{return err}
 		if err=s.agent.backend.Hub.Handle(s.connection,raw);err!=nil{return err}
@@ -136,6 +144,7 @@ func(s *remoteSession) handle(raw []byte)error{
 		if !s.agent.control.Join(s.identity) { s.mu.Unlock(); return errCapacity }
 		s.authenticated.Store(true)
 		s.mu.Unlock()
+		s.trace.add("handshake","HELLO_ACCEPTED")
 		s.agent.broadcastPresence();return nil
 	}
 	if m["type"]!="command"{return errors.New("only client commands are permitted")}

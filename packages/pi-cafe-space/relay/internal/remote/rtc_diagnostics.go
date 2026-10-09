@@ -45,8 +45,8 @@ func(d *rtcDiagnostics) snapshot()[]rtcDiagnosticView {
 }
 func(a *rtcAttempt) add(step,state string){
  if a==nil{return}
- switch step{case "session","ice","peer","dtls","sctp-error","sctp-close","data","data-error","policy","selection","close","pion-sctp","pion-dtls","pion-transport","pion-data":default:return}
- switch state{case "created","new","checking","connecting","connected","completed","disconnected","failed","closed","received","open","requested","selected","LABEL_REJECTED","PROTOCOL_REJECTED","RELIABILITY_REJECTED","DUPLICATE_CHANNEL","PEER_ABORT","TIMEOUT","EOF","CLOSED","CHECKSUM","CERTIFICATE","BUFFER_LIMIT","HANDSHAKE","OTHER_ERROR","NONE","VISITOR_LEFT","SIGNAL_LOST","AUTH_EXPIRED","PASSWORD_REJECTED","ROOM_CHANGED","INVALID_SELECTION","INVALID_MESSAGE","QUEUE_LIMIT","READ_STOPPED","WRITE_STOPPED","TRANSPORT_CLOSED","DEVICE_STOPPED","OTHER_CLOSE":default:state="OTHER_ERROR"}
+ switch step{case "session","handshake","ice","peer","dtls","sctp-error","sctp-close","data","data-error","policy","selection","close","pion-sctp","pion-dtls","pion-transport","pion-data":default:return}
+ switch state{case "ROOM_VERIFIED","HELLO_RECEIVED","HELLO_ACCEPTED","created","new","checking","connecting","connected","completed","disconnected","failed","closed","received","open","requested","selected","LABEL_REJECTED","PROTOCOL_REJECTED","RELIABILITY_REJECTED","DUPLICATE_CHANNEL","PEER_ABORT","TIMEOUT","EOF","CLOSED","CHECKSUM","CERTIFICATE","BUFFER_LIMIT","HANDSHAKE","OTHER_ERROR","NONE","VISITOR_LEFT","SIGNAL_LOST","AUTH_EXPIRED","PASSWORD_REJECTED","ROOM_CHANGED","INVALID_SELECTION","INVALID_MESSAGE","QUEUE_LIMIT","READ_STOPPED","WRITE_STOPPED","TRANSPORT_CLOSED","DEVICE_STOPPED","OTHER_CLOSE":default:state="OTHER_ERROR"}
  a.mu.Lock();defer a.mu.Unlock();if time.Since(a.started)>=rtcDiagnosticRetention{return}
  if n:=len(a.events);n>0&&a.events[n-1].Step==step&&a.events[n-1].State==state{return}
  if len(a.events)>=rtcDiagnosticEvents{copy(a.events[1:],a.events[2:]);a.events=a.events[:rtcDiagnosticEvents-1]};a.events=append(a.events,rtcDiagnosticEvent{time.Since(a.started).Milliseconds(),step,state})

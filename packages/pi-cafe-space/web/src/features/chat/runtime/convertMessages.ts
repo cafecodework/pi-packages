@@ -13,6 +13,7 @@ export interface ToolView {
   readonly status: 'pending' | 'running' | 'complete' | 'error';
   readonly conflict: boolean;
   readonly association: 'attached' | 'missing-parent' | 'ambiguous';
+  readonly nestedTools?: readonly ToolView[];
 }
 type Part = Exclude<ThreadMessageLike['content'], string>[number];
 type Owner = { message: TranscriptMessage; row: number; index: number };
@@ -89,6 +90,30 @@ export function convertMessages(snapshot: Pick<SessionSnapshot, 'messages' | 'to
   const foldedResults = new Set<TranscriptMessage>();
   const foldedExecutions = new Set<ToolExecution>();
   const rows = new Map<number, Part[]>();
+  const nested = new Map<string, ToolView[]>();
+  for (const execution of snapshot.tools) {
+    if (owners.has(execution.toolCallId) || executions.get(execution.toolCallId) !== execution || results.get(execution.toolCallId) === null) continue;
+    // Pi NestedToolCallRunner uses <callerId>/<positive integer>, not a name/time heuristic.
+    // shortcut: only codemode parents are recognized without parentToolCallId on the wire; extend the protocol for other nesting tools.
+    let parentId = execution.toolCallId;
+    while (/\/[1-9]\d*$/.test(parentId)) {
+      const separator = parentId.lastIndexOf('/');
+      if (!Number.isSafeInteger(Number(parentId.slice(separator + 1)))) break;
+      parentId = parentId.slice(0, separator);
+      if (!owners.has(parentId)) continue;
+      const parent = owners.get(parentId);
+      const part = parent?.message.parts?.find(part => part.index === parent.index);
+      const name = part?.type === 'tool-call' ? part.toolName : parent?.message.toolName;
+      if (!parent || name !== 'codemode' || execution.parentMessageId && execution.parentMessageId !== parent.message.id) break;
+      const result = results.get(execution.toolCallId) ?? undefined;
+      const children = nested.get(parentId) ?? [];
+      children.push(toolView(key('nested', parentId, execution.toolCallId), execution.toolCallId, execution.toolName, execution.argsText, 'attached', execution, result));
+      nested.set(parentId, children);
+      foldedExecutions.add(execution);
+      if (result) foldedResults.add(result);
+      break;
+    }
+  }
   snapshot.messages.forEach((message, row) => {
     if (message.role !== 'assistant') return;
     const call = (index: number, callId: string, name: string, rawArgs?: string): Part => {
@@ -98,9 +123,10 @@ export function convertMessages(snapshot: Pick<SessionSnapshot, 'messages' | 'to
       const result = attached ? results.get(callId) ?? undefined : undefined;
       if (result) foldedResults.add(result);
       if (execution) foldedExecutions.add(execution);
-      return toolPart(toolView(key('message', message.id, messageOccurrences[row]!, 'call', callId, index), callId, name,
+      const view = toolView(key('message', message.id, messageOccurrences[row]!, 'call', callId, index), callId, name,
         rawArgs ?? execution?.argsText ?? '', attached ? 'attached' : 'ambiguous', execution, result,
-        message.partsTruncated === true, !!execution?.parentMessageId && execution.parentMessageId !== message.id));
+        message.partsTruncated === true, !!execution?.parentMessageId && execution.parentMessageId !== message.id);
+      return toolPart(attached && nested.has(callId) ? { ...view, nestedTools: nested.get(callId)! } : view);
     };
     if (message.parts !== undefined) {
       rows.set(row, message.parts.map(part => part.type === 'tool-call'
@@ -136,8 +162,8 @@ export function convertMessages(snapshot: Pick<SessionSnapshot, 'messages' | 'to
     const occurrence = toolOccurrences.get(execution.toolCallId) ?? 0;
     toolOccurrences.set(execution.toolCallId, occurrence + 1);
     if (foldedExecutions.has(execution) || results.has(execution.toolCallId)) return;
-    const view = toolView(key('execution', execution.toolCallId, occurrence), execution.toolCallId, execution.toolName, execution.argsText, owners.has(execution.toolCallId) ? 'ambiguous' : 'missing-parent', execution);
-    output.push({ id: key('execution', execution.toolCallId, occurrence), role: 'assistant', content: [{ type: 'data', name: 'pi-tool', data: view }], metadata: { custom: { sourceRole: 'tool', projectionOnly: true, incomplete: true } }, status: { type: 'complete', reason: 'unknown' } });
+    const view = toolView(key('execution', execution.toolCallId, occurrence), execution.toolCallId, execution.toolName, execution.argsText, owners.has(execution.toolCallId) || executions.get(execution.toolCallId) === null ? 'ambiguous' : 'missing-parent', execution);
+    output.push({ id: key('execution', execution.toolCallId, occurrence), role: 'assistant', content: [{ type: 'data', name: 'pi-tool', data: view }], metadata: { custom: { sourceRole: 'tool', projectionOnly: true, incomplete: false } }, status: { type: 'complete', reason: 'unknown' } });
   });
   return output;
 }

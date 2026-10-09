@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdtemp, mkdir, readFile, writeFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, isAbsolute } from 'node:path';
+import { join, resolve, isAbsolute, dirname, delimiter } from 'node:path';
 import { parseArgs } from 'node:util';
 import { randomBytes, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -52,7 +52,7 @@ try {
   for (const path of ['home','agent','project']) await mkdir(join(root, path), { mode:0o700 });
   await writeFile(join(root,'agent','settings.json'), JSON.stringify({ enableInstallTelemetry:false, enableAnalytics:false, defaultThinkingLevel:'off', extensions:[], skills:[], themes:[], prompts:[], retry:{enabled:false} }), { mode:0o600 });
   const port = await freePort(), base = `http://127.0.0.1:${port}`, file = join(root,'private','credentials.json');
-  const env = { HOME:join(root,'home'), USERPROFILE:join(root,'home'), TMPDIR:root, TEMP:root, TMP:root, PATH:process.execPath.slice(0,process.execPath.lastIndexOf('/'))+':/usr/bin:/bin', PI_CAFE_CREDENTIALS_FILE:file, PI_COLLAB_HOST:'127.0.0.1', PI_COLLAB_PORT:String(port) };
+  const env = { HOME:join(root,'home'), USERPROFILE:join(root,'home'), TMPDIR:root, TEMP:root, TMP:root, PATH:dirname(process.execPath)+delimiter+(process.env.PATH??''), PI_CAFE_CREDENTIALS_FILE:file, PI_COLLAB_HOST:'127.0.0.1', PI_COLLAB_PORT:String(port) };
   for (const key of ['SystemRoot','WINDIR']) if (process.env[key]) env[key] = process.env[key];
   const startRelay = () => { const child = spawnOwned(binary, [], env); child.stdout.resume(); return child; };
   relay = startRelay();
@@ -107,6 +107,11 @@ try {
   await until(() => browserWelcome, 'browser automatic authentication');
   assert.equal(await page.getByRole('heading',{name:'Set up your access token',exact:true}).count(),0);
   const bytes = await readFile(file), credentials = JSON.parse(bytes);
+  const roomConfig = join(root,'room-device.json');
+  await writeFile(roomConfig,JSON.stringify({mode:'device',publicOrigin:'https://rooms.example',cloudUrl:'wss://rooms.example/room/host',roomIdentityFile:join(root,'identity','room.json'),enableWebRTC:true,rooms:['main'],maxRole:'operator'}),{mode:0o600});
+  const roomCheck = spawnSync(process.execPath,[join(candidate,'scripts/remote/room-run.mjs'),'--config',roomConfig,'--credentials',file,'--check'],{encoding:'utf8',timeout:15000});
+  assert.equal(roomCheck.status,0,roomCheck.stderr);assert.equal(JSON.parse(roomCheck.stdout).valid,true);
+  checks.push('Packaged room launcher reads the same private credentials/configuration under the actual Pi Node runtime');
   assert.equal(credentials.clientToken,token); assert.notEqual(credentials.hostToken,token);
   if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777,0o600);
   const state = await (await fetch(base+'/api/setup',{headers:{'X-Cafe-Setup':'1'}})).json();
@@ -126,7 +131,7 @@ try {
   assert(statuses.every(s => s.startsWith('café space: ')));
   checks.push('Second browser sees sign-in, restart preserves credentials and Pi reconnects with the new status prefix');
   assert.deepEqual(issues,[]);
-  const result = {passed:true,checks,providerRequests:0,piRestartedForSetup:false,platform:process.platform,browser:await browser.version(),scope:'isolated loopback server, temporary credentials, real native Pi and independent browser; live user token not initialized'};
+  const result = {passed:true,checks,providerRequests:0,piRestartedForSetup:false,platform:process.platform,browser:await browser.version(),node:process.version,scope:'isolated loopback server, temporary credentials, real native Pi and independent browser; live user token not initialized'};
   if(report) await writeFile(join(report,'result.json'),JSON.stringify(result,null,2)); console.log(JSON.stringify(result,null,2));
 } catch (error) {
   const result = {passed:false,checks,error:String(error.message),statuses,issues,providerRequests:0};

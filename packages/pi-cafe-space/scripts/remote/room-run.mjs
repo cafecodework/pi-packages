@@ -1,13 +1,11 @@
-import { lstat, open } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { resolve, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 const packageRoot=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 async function privateJSON(path){
- const before=await lstat(path);
- if(!before.isFile()||before.isSymbolicLink()||before.size>16384||process.platform!=='win32'&&((before.mode&0o077)!==0||before.uid!==process.getuid()))throw Error('Private configuration permissions invalid');
- const file=await open(path,'r');try{const actual=await file.stat();if(actual.ino!==before.ino||actual.dev!==before.dev||actual.size>16384)throw Error('Configuration changed');return JSON.parse(await file.readFile('utf8'));}finally{await file.close();}
+ const {readPrivateJSON}=await import('../../dist/extension/private-json.js');
+ return readPrivateJSON(path);
 }
 async function main(){
  const {values}=parseArgs({strict:true,options:{config:{type:'string'},credentials:{type:'string'},'managed-config':{type:'string'},check:{type:'boolean'},help:{type:'boolean'}}});

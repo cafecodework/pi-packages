@@ -11,7 +11,7 @@ import { Icon } from '../../../components/ui/Icon';
 export function isToolView(value: unknown): value is ToolView {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return typeof v.key === 'string' && typeof v.callId === 'string' && typeof v.name === 'string' && typeof v.argsText === 'string' && typeof v.output === 'string' && typeof v.argsValid === 'boolean' && typeof v.hasOutput === 'boolean' && typeof v.conflict === 'boolean' && ['pending', 'running', 'complete', 'error'].includes(String(v.status)) && ['attached', 'missing-parent', 'ambiguous'].includes(String(v.association));
+  return typeof v.key === 'string' && typeof v.callId === 'string' && typeof v.name === 'string' && typeof v.argsText === 'string' && typeof v.output === 'string' && typeof v.argsValid === 'boolean' && typeof v.hasOutput === 'boolean' && typeof v.conflict === 'boolean' && ['pending', 'running', 'complete', 'error'].includes(String(v.status)) && ['attached', 'missing-parent', 'ambiguous'].includes(String(v.association)) && (v.nestedTools === undefined || Array.isArray(v.nestedTools) && v.nestedTools.length <= 100 && v.nestedTools.every(child => child?.nestedTools === undefined && isToolView(child)));
 }
 function DiffPreview({ rows, source }: { rows: DiffRow[]; source: 'result' | 'requested-edit' }) {
   const { i18n } = useTranslation(), zh = i18n.language.startsWith('zh');
@@ -26,16 +26,17 @@ function DiffPreview({ rows, source }: { rows: DiffRow[]; source: 'result' | 're
 export function ToolPart({ view }: { view: ToolView }) {
   const labels = useChatLabels(), { i18n } = useTranslation(), zh = i18n.language.startsWith('zh');
   const presentation = useMemo(() => toolPresentation(view), [view.name, view.argsText, view.argsValid, view.output, view.hasOutput, view.status]);
-  const disclosure = useDisclosure(view.key, view.status === 'error');
+  const nestedFailures = view.nestedTools?.filter(tool => tool.status === 'error').length ?? 0;
+  const disclosure = useDisclosure(view.key, view.status === 'error' || nestedFailures > 0);
   return <details className={clsx(styles.tool, view.status === 'error' && styles.failure)} data-tool-id={view.callId} data-tool-status={view.status} open={disclosure.open}>
-    <summary onClick={event => { event.preventDefault(); disclosure.setOpen(!disclosure.open); }}><span className={styles.toolDot} aria-hidden="true">●</span><strong>{presentation.title}</strong>{presentation.target && <code className={styles.toolTarget} title={presentation.target}>{presentation.target}</code>}<span className={styles.toolStatus}>{labels[view.status]}</span>{presentation.diff && <span className={styles.diffStat}><b>+{presentation.added}</b><i>−{presentation.removed}</i></span>}{view.conflict && <span className={styles.warning}>{labels.conflict}</span>}</summary>
+    <summary onClick={event => { event.preventDefault(); disclosure.setOpen(!disclosure.open); }}><span className={styles.toolDot} aria-hidden="true">●</span><strong>{presentation.title}</strong>{presentation.target && <code className={styles.toolTarget} title={presentation.target}>{presentation.target}</code>}<span className={styles.toolStatus}>{labels[view.status]}</span>{presentation.diff && <span className={styles.diffStat}><b>+{presentation.added}</b><i>−{presentation.removed}</i></span>}{view.conflict && <span className={styles.warning}>{labels.conflict}</span>}{!!view.nestedTools?.length && <span>{labels.nestedTools} · {view.nestedTools.length}{nestedFailures > 0 && <span className={styles.warning}> · {labels.error} {nestedFailures}</span>}</span>}</summary>
     {view.association !== 'attached' && <p className={styles.warning}>{view.association === 'ambiguous' ? labels.ambiguous : labels.parentMissing}</p>}
-    {!view.argsValid && <p className={styles.warning}>{labels.invalidArgs}</p>}
     <div className={styles.toolBody}>
       {presentation.diff && presentation.source && <DiffPreview rows={presentation.diff} source={presentation.source} />}
-      {view.hasOutput && !presentation.diff ? view.output === '' ? <p>{labels.empty}</p> : <><pre className={styles.outputPreview}>{presentation.outputPreview}</pre>{presentation.outputTruncated && <details className={styles.rawData}><summary>{zh ? `查看完整输出 · ${presentation.outputLines} 行` : `Full output · ${presentation.outputLines} lines`}</summary><pre>{view.output}</pre></details>}</> : !view.hasOutput && <p>{view.status === 'running' ? (zh ? '工具正在执行，等待输出…' : 'Tool is running, waiting for output…') : labels.noOutput}</p>}
-      {presentation.diff && view.hasOutput && <details className={styles.rawData}><summary>{labels.output}</summary><pre>{view.output || labels.empty}</pre></details>}
-      <details className={styles.rawData}><summary>{labels.args}</summary><pre>{view.argsText}</pre></details>
+      {view.hasOutput && !presentation.diff ? view.output === '' ? <p>{labels.empty}</p> : <><pre className={styles.outputPreview}>{presentation.outputPreview}</pre>{presentation.outputTruncated && <details className={styles.rawData}><summary><Icon name="chevron" />{zh ? `查看完整输出 · ${presentation.outputLines} 行` : `Full output · ${presentation.outputLines} lines`}</summary><pre>{view.output}</pre></details>}</> : !view.hasOutput && <p>{view.status === 'running' ? (zh ? '工具正在执行，等待输出…' : 'Tool is running, waiting for output…') : labels.noOutput}</p>}
+      {presentation.diff && view.hasOutput && <details className={styles.rawData}><summary><Icon name="chevron" />{labels.output}</summary><pre>{view.output || labels.empty}</pre></details>}
+      <details className={styles.rawData}><summary><Icon name="chevron" />{labels.args}</summary>{!view.argsValid && <p className={styles.warning}>{labels.invalidArgs}</p>}<pre>{view.argsText}</pre></details>
+      {view.nestedTools && <section aria-label={labels.nestedTools}>{view.nestedTools.map(tool => <ToolPart key={tool.key} view={tool} />)}</section>}
     </div>
   </details>;
 }

@@ -59,8 +59,9 @@
 .diffStat i { font-style: normal; color: var(--cafe-danger); }
 .toolBody { padding: 10px 12px; }
 .toolBody .rawData { margin-top: 10px; border: 0; }
-.toolBody .rawData > summary { display: list-item; list-style: disclosure-closed; padding: 8px 0; color: var(--cafe-muted); min-height: 34px; font-size: 11px; }
-.toolBody .rawData[open] > summary { list-style: disclosure-open; }
+.toolBody .rawData > summary { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; list-style: none; padding: 8px 0; color: var(--cafe-muted); min-height: 34px; font-size: 11px; }
+.toolBody .rawData > summary > svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.toolBody .rawData[open] > summary > svg { transform: rotate(90deg); }
 .toolBody .rawData > summary::after { display: none; }
 .toolBody .rawData > pre { padding: 10px; font-size: 11px; }
 .diff { min-width: 0; border-block: 1px dashed var(--cafe-line); }

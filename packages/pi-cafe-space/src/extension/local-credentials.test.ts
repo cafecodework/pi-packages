@@ -9,7 +9,7 @@ afterEach(() => { for (const directory of directories) rmSync(directory, { recur
 function fixture() { const directory = mkdtempSync(join(tmpdir(), 'cafe-credentials-test-')); directories.push(directory); return join(directory, 'credentials.json'); }
 it('only resolves private credentials for a local relay and isolates ports', () => {
   for (const url of ['wss://example.com/ws', 'ws://example.com/ws', 'ws://user:pass@localhost/ws', 'ws://localhost/ws?x=1']) expect(localCredentialFile(url, {})).toBeNull();
-  expect(localCredentialFile('ws://localhost:37891/ws', { HOME: '/test-home' })).toBe('/test-home/.config/pi-cafe-space/credentials-37891.json');
+  expect(localCredentialFile('ws://localhost:37891/ws', { HOME: '/test-home' })).toBe(join('/test-home', '.config', 'pi-cafe-space', 'credentials-37891.json'));
   expect(() => localCredentialFile('ws://localhost:37891/ws', { PI_CAFE_CREDENTIALS_FILE: 'relative.json' })).toThrow();
 });
 it('reads a newly created local host token without exposing the browser token', () => {
