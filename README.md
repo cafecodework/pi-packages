@@ -3,11 +3,17 @@
 ## Packages
 
 - [`pi-auto-router`](./packages/pi-auto-router) — 按任务分类路由模型与思考强度；分类器、分类依据和各档模型均可由用户配置，默认使用 Jev 与 Cafe Astra、Sol、Luna。
-- [`@cafecodework/pi-cafe-space`](./packages/pi-cafe-space) — 让原生 Pi CLI 与 Web/PWA 实时共享同一个活跃会话，并提供受限文件浏览和历史会话查看。
+- [`@cafecodework/pi-cafe-space`](./packages/pi-cafe-space) — 通过 Go 网关、React 网页和 WebRTC，在手机／笔记本访问办公电脑的多个原生 Pi 实例；支持房间链接、Café 账号或访客身份、独立房间密码与可选操作审批。
 
 - [`@cafecodework/pi-context`](./packages/pi-context) — 提供 `/context` 命令，显示上下文窗口使用量和分类估算。
 - [`@cafecodework/pi-subagent`](./packages/pi-subagent) — 提供 `subagent` 工具，在隔离的 Pi 子进程中执行独立任务。
 - [`@cafecodework/pi-theme-cafecode`](./packages/pi-theme-cafecode) — CaféCode 的 Pi 主题和界面扩展。
+
+## Café Space 文档入口
+
+[使用与部署概览](./packages/pi-cafe-space/README.md) · [安装与自托管](./packages/pi-cafe-space/docs/INSTALL.md) · [当前服务器版本与回退](./packages/pi-cafe-space/docs/DEPLOYMENT_SPACE.md) · [Café 账号与 SSO](./packages/pi-cafe-space/docs/CAFE_SSO.md) · [开发交接](./packages/pi-cafe-space/docs/DEVELOPMENT_HANDOFF.md)
+
+Space README 说明 cloud／identity／TURN／Caddy 和办公端 Pi 的分工、部署目录与常用命令；具体镜像、提交与验收记录集中在部署文档，避免入口只留下旧版 TS 中继说明。
 
 ## 推荐配置
 

@@ -1,144 +1,180 @@
-# @cafecodework/pi-cafe-space
+# Café Space · @cafecodework/pi-cafe-space
 
-> **当前正式构建入口：Go Relay + React 网页。** 在本目录执行 `npm run build`，生成可安装目录 `.refactor/release/package`；执行 `npm run pack` 生成经过字节校验的 `.tgz`；需要服务器或其他办公系统时追加 `-- --platforms linux-amd64,windows-amd64`。`npm start`／`npm run relay` 启动已构建的 Go Relay。仓库根也提供 `pi-cafe-space:build`、`pi-cafe-space:pack`、`pi-cafe-space:start`。
+在手机、笔记本和协作者的浏览器中使用办公电脑上的原生 Pi。一台办公电脑的网关对应一个房间，房间里可以同时连接多个 Pi 实例；分享链接或二维码后，访客输入房间密码进入。
 
-源码目录不是分发包布局，因此直接执行 `npm pack` 会提示使用 `npm run pack`，不会悄悄打出旧 `dist`。安装使用生成的 `.tgz` 或 `.refactor/release/package`，不要把源码 checkout 的历史 `dist` 当成已构建版本。旧参考实现仍可用 `npm run legacy:build`／`npm run legacy:relay` 显式运行；下方旧版布局和 Windows 操作说明保留作历史参考。现有 `refactor:pack`／`remote:pack` 别名继续兼容。
+**当前实现是 Go Relay + React 网页 + Pi 扩展，不是终端画面转播。** 模型和工具由办公端 Pi 执行，网页接收结构化消息和状态。
 
-> **换机器继续开发：先读 [开发交接说明](docs/DEVELOPMENT_HANDOFF.md)。** 本机凭据、会话、构建产物和运行目录不随 Git 迁移；多设备使用见 [远程接入指南](docs/REMOTE_ACCESS.md)。
+[安装与自托管](docs/INSTALL.md) · [房间与二维码](docs/ROOMS.md) · [服务器部署记录](docs/DEPLOYMENT_SPACE.md) · [Café 账号与 SSO](docs/CAFE_SSO.md) · [开发交接](docs/DEVELOPMENT_HANDOFF.md)
 
-Pi Cafe Space 让电脑上的原生 Pi CLI 和手机或桌面浏览器通过 HTTP/WebSocket relay 参与同一个实时 Pi 会话。
+## 使用方式
 
-默认 relay 只负责连接、认证、房间、事件转发和短期内存状态。Go 候选另有可选的 [独立后台会话](docs/MANAGED_SESSIONS.md)：在本机明确配置的项目中启动新的原生 Pi RPC 进程，不切换现有客户端，也不让两个 runtime 同时拥有同一会话。Relay 不写入 Pi session JSONL。
+办公电脑安装 Pi、Café Space 扩展和房间网关，并保持网关在线。在 Pi 中输入 `/cafe` 或 `/cafe share`，即可复制房间链接、展示二维码；`/cafe open` 打开本机分享与设置页面。默认本机地址是 `http://127.0.0.1:37891/`，这个地址不是手机的远程入口。
+
+手机或笔记本打开分享链接，例如 `https://space.cafecode.work/#/room/<roomKey>`。首次可以选择 Café 账号或访客，随后输入独立的房间密码。账号登录复用 cafecode.work，不需要再注册 Space 账号；登录或取消都会返回原房间。
+
+**账号身份、房间密码和控制权审批是三件独立的事。** 账号登录不免除房间密码，也不自动赋予房主权限。审批默认关闭，通过房间密码的访客可以直接操作；房主开启审批后，在本机「分享房间 → 房间设置」或 Pi 的 `/cafe approvals` 中处理申请。批准不会自动发送访客草稿。
+
+房间链接不含密码。昵称以 `昵称#ID` 显示；刷新、切换身份和批准恢复的具体规则见[房间指南](docs/ROOMS.md)。网页更新后刷新页面；扩展更新后，已有 Pi 在空闲时 `/reload`，不必结束正在执行的任务。安装扩展不会自动升级全局 Pi，事件能力取决于实际运行的 Pi 版本。
+
+## 架构与职责
 
 ```text
-Web/PWA ---- WebSocket ---- Pi Cafe Space relay
-                                |
-                                | WebSocket
-                                v
-                         Pi extension host
-                                |
-                         current Pi session
+手机／笔记本浏览器
+  │
+  ├─ HTTPS ─► Caddy
+  │              ├─ Space 网页、房间登记、信令 ─► Go cloud
+  │              └─ Café 登录、OIDC、应用会话 ──► identity
+  │
+  └─ WebRTC DataChannel ───────────────────────► 办公端 Go 网关
+       直连优先；必要时经 TURN 转发加密流量              │
+                                                   ├─ WebSocket ─► Pi 扩展 A ─► 原生 Pi 会话 A
+                                                   └─ WebSocket ─► Pi 扩展 B ─► 原生 Pi 会话 B
 ```
 
-## Package layout
+| 组件 | 职责 | 不负责什么 |
+|---|---|---|
+| React 网页 | 会话呈现、文件浏览、模型设置、操作意图 | 不直接持有模型 API Key 或调用模型 |
+| 云端 Go cloud | 提供嵌入的网页资源、房间登记与 WebRTC 信令 | 不在服务器执行办公端 Pi 任务，不存储房间密码 |
+| identity | 复用主站账号，处理 OIDC、Space 会话和身份声明 | 不代替房间验密或房主审批 |
+| TURN | 直连受限时辅助 WebRTC 传输 | 不执行模型任务，不代替登录或房间授权 |
+| 办公端 Go 网关 | 验密、校验身份、审批与命令准入，连接本机 Pi | 不自行改写 Pi 会话历史 |
+| Pi 扩展与原生 Pi | 上报真实消息／状态，执行命令；Pi 管理模型、工具和会话 | 不从终端屏幕或 OSC 文本推测执行结果 |
 
-这是父仓库 `packages/*` 下的自包含 Pi package，也是 `pi install` 的直接目标：
+当前云端采用单实例、内存房间登记。已有 WebRTC 连接仍依赖信令与授权生命周期，cloud 重启会影响房间连接，客户端需要重连；不要把 P2P 理解为服务器可以任意停机而连接完全不受影响。
+
+## 从源码构建与安装
+
+源码构建需要 Node.js `>=22.19.0`、npm，以及满足 [`relay/go.mod`](relay/go.mod) 要求的 Go 工具链。预构建 Go 程序本身无需 Node／Go 运行时；Pi 扩展仍需要 Node 和单独安装的 Pi CLI。
+
+从仓库根目录安装锁定依赖，再进入包目录：
+
+```sh
+npm ci --ignore-scripts
+cd packages/pi-cafe-space
+npm run build
+```
+
+`build` 生成当前平台的可安装目录 `.refactor/release/package`。需要交付归档，或同时构建服务器与其他办公端平台时：
+
+```sh
+npm run pack -- --platforms linux-amd64,windows-amd64
+```
+
+命令输出实际归档路径与摘要；目标二进制位于分发目录的 `dist/relay/bin/<platform>/`。交叉编译成功不等于所有目标系统已经实机验收。当前安装与验收边界以[开发交接](docs/DEVELOPMENT_HANDOFF.md)和[部署记录](docs/DEPLOYMENT_SPACE.md)为准。
+
+**安装使用生成的分发目录或 `.tgz`，不要将源码 checkout 中的旧 `dist` 当成发行包。** 源码目录内直接执行 `npm pack` 会提示正确入口 `npm run pack`。现有 `refactor:pack`／`remote:pack` 只是兼容别名。
+
+房间版安装器负责独立程序目录、持久状态与扩展登记；在包目录可先查看参数，再按[安装指南](docs/INSTALL.md)配置：
+
+```sh
+node .refactor/release/package/scripts/remote/install-client.mjs --help
+```
+
+程序目录与房间状态分开，升级复用原状态，不删除密码、身份或模型配置。`npm start`／`npm run relay` 仅启动已构建的 Go Relay，不自动替你完成云端房间配置；已有网关服务时不要再占用同一端口。仓库根提供 `pi-cafe-space:build`、`pi-cafe-space:pack`、`pi-cafe-space:start` 对应入口。
+
+### 源码与分发目录
 
 ```text
 packages/pi-cafe-space/
-|-- src/
-|   |-- extension/       Pi host extension
-|   |-- protocol/        shared wire protocol
-|   `-- relay/           HTTP/WebSocket relay
-|-- web/public/          static Web/PWA client
-|-- scripts/             Windows start/stop helpers
-|-- docs/                architecture and component notes
-|-- package.json         Pi package manifest
-|-- LICENSE              package license
-`-- tsconfig.json
+├── src/extension/                 Pi 扩展
+├── src/protocol/                  TypeScript 协议与归约
+├── relay/                         正式 Go Relay、协议、房间与托管进程
+├── web/src/                       React 网页
+├── scripts/                       构建、安装、诊断与发行工具
+├── docs/                          安装、身份、部署与历史说明
+└── .refactor/release/package/      构建产物，不入 Git
+    ├── dist/extension/index.js
+    ├── dist/protocol/
+    ├── dist/relay/build.json
+    ├── dist/relay/bin/<platform>/pi-cafe-relay[.exe]
+    └── scripts/remote/
 ```
 
-构建后会生成：
+旧 `src/relay`、`web/public` 和 Windows 脚本说明已移到[历史 TS Relay 文档](docs/LEGACY_TS_RELAY.md)，不再作为当前安装或生产部署步骤。
+
+## 服务器部署：现有 netcup 环境
+
+以下描述既有 `space.cafecode.work` 部署，**不是覆盖一台新服务器的安装脚本**。自建域名和新服务器见[安装指南的公共服务部署](docs/INSTALL.md)。本节保留稳定的职责、目录与运维入口；当前提交、镜像版本、摘要、验收结果和回退路径集中记录在 [DEPLOYMENT_SPACE.md](docs/DEPLOYMENT_SPACE.md)。
+
+### 容器与 Compose
+
+| 服务 | Compose 项目／服务 | 宿主机网络入口 | 部署文件 |
+|---|---|---|---|
+| Space 网页与信令 | `pi-cafe-space`／`cloud` | `127.0.0.1:37892`，由 Caddy 反代 | `/opt/stacks/pi-cafe-space/compose.yaml` |
+| TURN | `pi-cafe-space`／`turn` | Host 网络；3478 TCP/UDP、49160–49259 UDP | 同上，配置在 `turn/turnserver.conf` |
+| 身份服务 | `cafe-identity`／`identity` | Host 网络；程序监听 `127.0.0.1:20124` | `/opt/stacks/edel-garden/deploy/identity/compose.yaml` |
+| HTTPS 入口 | 现有 `caddy` 项目 | Host 网络；统一接收 HTTPS | `/opt/stacks/caddy/compose.yaml` |
+
+Space 是 **React 构建资源嵌入 Go 单程序**，不是独立运行 Vite／Node 的前端容器。Linux 程序放在版本化的 `releases/<release>/` 中，服务器使用 `FROM scratch` 的 Dockerfile 将它装入镜像。cloud 容器只发布回环端口，并只读挂载 `cloud.json`。
+
+身份服务属于另一个仓库 `edel-garden` 的 `services/identity`，单独使用 Node 多阶段 Docker 构建；构建阶段安装锁定依赖并执行身份测试。它复用主站账号验证，不另建 Space 注册／密码数据库。两个业务服务与 TURN 均配置 `restart: unless-stopped`，不需要把整个主站一起重建。
+
+### 域名与 Caddy 路由
+
+Caddy 配置文件为 `/opt/stacks/caddy/config/Caddyfile`。现有路径分流如下：
+
+| 域名／路径 | 上游 |
+|---|---|
+| `space.cafecode.work/api/identity/*` | `127.0.0.1:20124`，Space 登录会话与身份接口 |
+| `space.cafecode.work` 其他请求 | `127.0.0.1:37892`，网页、房间登记与信令 |
+| `www.cafecode.work/oidc`、`/oidc/*`、SSO 与退出相关路径 | 同一个 `127.0.0.1:20124` 身份服务 |
+| 主站其他页面与业务 | 沿用原有主站部署 |
+
+主站规范登录域名为 `www.cafecode.work`。身份服务内部连接原主站 API 的 `127.0.0.1:20120`。完整身份路径匹配与签发者配置见 [CAFE_SSO.md](docs/CAFE_SSO.md)，不要为增加 Space 路由覆盖其他 Caddy 站点。
+
+TURN 的连接不经过 Caddy HTTP 反代或 Cloudflare 普通 HTTP 代理。当前部署没有提供 TURN/TLS 5349，受限网络能否连接需实际验证，不能根据网页能打开就认定 WebRTC 一定成功。
+
+### 文件与持久化
 
 ```text
-dist/extension/index.js  Pi 实际加载的扩展
-dist/relay/index.js      extension 可自动拉起的 relay
-dist/relay/public/       relay 提供的 Web/PWA
+/opt/stacks/pi-cafe-space/
+├── compose.yaml
+├── cloud.json                     cloud 配置（只读挂载）
+├── cloud-runtime.env              内部运行配置，勿公开或提交
+├── releases/<release>/            已编译 Linux 程序与 Dockerfile
+├── turn/turnserver.conf            TURN 配置，包含私密配置
+├── backups/                       原配置与回退依据
+└── practical-deployment.json       最近这批发布回执，后续名称见部署记录
+
+/opt/stacks/edel-garden/
+├── services/identity/             身份服务源码
+├── deploy/identity/compose.yaml
+├── .secrets/identity/keys.json      签名密钥，只读挂载，不入库
+└── data/identity/                  SQLite 登录会话及旁路文件，持久化
 ```
 
-`package.json` 的 `pi.extensions` 只加载 `dist/extension/index.js`。relay、协议和 Web 随同一个 package 构建，是为了让默认本地模式不依赖仓库外部路径。
+房间私钥、密码校验值、Pi 模型配置和会话文件留在办公电脑。服务器身份库保存登录相关状态，不保存办公 Pi 的执行历史。升级容器保留原数据挂载和密钥，不通过重建用户身份来解决启动问题。
 
-详细架构和限制见 [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)。
+### 查看、更新与回退
 
-## Install
+以下命令在已有部署的服务器上运行。身份项目名必须显式使用 `cafe-identity`，不能按目录名误启动成另一个 `identity` 项目。
 
-要求 Node.js `>=22.19.0`。在父仓库根目录执行：
+```sh
+# 查看状态
+docker compose -p pi-cafe-space -f /opt/stacks/pi-cafe-space/compose.yaml ps
+docker compose -p cafe-identity -f /opt/stacks/edel-garden/deploy/identity/compose.yaml ps
 
-```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
-npm install
-npm run pi-cafe-space:build
-pi install C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
+# 查看目标服务最近日志（分享日志前检查敏感内容）
+docker compose -p pi-cafe-space -f /opt/stacks/pi-cafe-space/compose.yaml logs --tail=80 cloud
+docker compose -p cafe-identity -f /opt/stacks/edel-garden/deploy/identity/compose.yaml logs --tail=80 identity
 ```
 
-随后在任意项目目录运行普通 `pi`。扩展默认会：
+当前发布流程是：测试并构建 Space 的 Linux 程序，上传新版本目录，在服务器构建镜像；身份服务在服务器从其源码构建。核对新镜像后更新对应 Compose 的镜像／构建目录，再只切换目标服务：
 
-1. 检查 `ws://127.0.0.1:37891/ws` 对应的本地 relay；
-2. relay 不存在时，以 detached 后台进程启动 package 内的 `dist/relay/index.js`；
-3. 把当前 Pi runtime 注册为 `main` room 的一个独立 host；同一个 room 可以同时运行多个 Pi 实例；
-4. 让 `http://127.0.0.1:37891/` 显示实时 transcript、thinking、工具状态、文件和历史会话。
-
-不想让某次 Pi 自动连接，可以使用：
-
-```powershell
-$env:PI_COLLAB_ENABLED = "0"
-pi
+```sh
+# 前提：新镜像已构建，Compose 已指向该版本，原配置／镜像已保留。
+docker compose -p pi-cafe-space -f /opt/stacks/pi-cafe-space/compose.yaml up -d --no-build --no-deps cloud
+docker compose -p cafe-identity -f /opt/stacks/edel-garden/deploy/identity/compose.yaml up -d --no-build --no-deps identity
 ```
 
-也可以在 Pi 内执行 `/collab-disconnect`。relay 暂时不可用时扩展会继续自动重连，但相同的连接 warning 最多每 60 秒提示一次，避免 `ECONNREFUSED` 反复刷屏；Pi 状态栏仍会显示连接状态。
+**Git push 不等于部署成功。** 还需要验证实际网页资源、身份接口、正确／错误房间密码与第二个设备的 WebRTC 连接；`/healthz` 只能证明对应 HTTP 服务可用。一般业务更新不需要重启 Caddy／TURN。
 
-`start-pi.ps1` 会在传给 `pi` 的参数前加入 `--collab`，脚本参数之后的其余 `PiArgs`（例如 `--resume "session id"` 或其他 Pi CLI 选项）会继续转发；Pi 的退出码会传回调用方，脚本也会恢复调用前的 `PI_COLLAB_*` 环境变量。
+回退恢复已记录的上一份 Compose 和程序版本，只操作对应服务，不删除房间状态、签名密钥或会话数据；准确的旧版本及文件位置见[部署记录](docs/DEPLOYMENT_SPACE.md)。办公端网关重启与手动 Pi 进程是不同生命周期；可选托管实例由网关拥有，不能把重启网关一概当作对任务无影响。
 
-## Local relay
+## 行为边界与进一步阅读
 
-通常由普通 `pi` 自动启动。也可以手动操作：
+连接、当前活动和本轮结果分别呈现；“本轮结束”不是业务目标已验收，断线不会被当成成功。支持的 Pi 版本通过结构化事件提供取消、压缩和等待种类；缺少证据时保留未知，不解析终端文本补造状态。命令 `dispatched` 只表示已派发，不是模型完成。
 
-```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
-npm run pi-cafe-space:relay:start
-npm run pi-cafe-space:relay:stop
-```
+共享文件仅限允许的项目范围，并过滤已知敏感路径和实际运行凭据；这不等于能识别任意文件中的所有秘密。Pi 操作能力沿用办公端原生工具权限，项目目录白名单不是操作系统沙箱。
 
-默认页面：
-
-```text
-http://127.0.0.1:37891/
-```
-
-loopback 页面在当前 tab 没有已保存 token 时会自动使用本地开发 client token；如果此前保存过自定义 token，页面会保留它，需要在登录表单中改回正确 token。`sessionStorage` 只是 best-effort convenience cache；如果浏览器策略禁止 storage，当前 tab 仍可登录，但刷新页面后不会保留 token。默认 token 不能用于 LAN 或公网。非 loopback relay 要求两个明确、彼此不同、非默认/placeholder 的 token；每个 token 长度为 16–4,096 个字符，并通过至少 8 个不同字符、单字符频率不超过 25%、Shannon entropy `>=3.0` 和估算总熵 `>=64 bit` 的启发式检查。该检查不是密码学来源证明，生产环境应使用密码学安全随机源生成 token。`PI_COLLAB_ALLOWED_ORIGINS` 只额外放行列出的跨源浏览器 Origin；列表最多 64 项、每项最多 2,048 个字符，原始环境变量文本也有总长度上限。实现允许与 relay 直接监听协议和 Host 完全匹配的同源升级；经 TLS 反向代理时应把公开的 HTTPS Origin 显式加入 allowlist。allowlist 项必须是没有凭据、路径、查询或 fragment 的 `http(s)` origin，并在 allowlist 为空时兼容无 `Origin` 的 extension/非浏览器客户端，所以 token 认证仍是必要安全边界。启动脚本和 extension 使用按 bind/port 区分的原子启动锁；启动脚本在只读安装目录时会回退到用户临时 runtime，extension 最差情况下无锁、无 PID convenience file 也会继续启动 relay。自动启动 relay 时只传递必要的 OS 启动变量和 `PI_COLLAB_*` 配置，不会把 Pi/provider 凭据环境传给 relay 子进程。
-
-## LAN test
-
-在 package 目录使用显式高熵 token 启动：
-
-```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
-.\scripts\start-relay.ps1 `
-  -Bind "0.0.0.0" `
-  -HostToken "真实随机 host token" `
-  -ClientToken "真实随机 client token"
-```
-
-手机打开电脑的局域网地址，例如 `http://192.168.1.20:37891/`；`-Bind 0.0.0.0` 只表示监听所有接口，启动脚本会明确提示使用实际 LAN IP，而不是把 `127.0.0.1` 当作手机地址。远程部署应使用 HTTPS/WSS、反向代理或 Cloudflare Tunnel。
-
-远程或自定义 token 时，Pi 端也必须使用同一个 host token：
-
-```powershell
-.\scripts\start-pi.ps1 `
-  -RelayUrl "wss://relay.example.com/ws" `
-  -HostToken "同一个 host token"
-```
-
-## Verify
-
-从父仓库根目录运行：
-
-```powershell
-npm run pi-cafe-space:check
-npm run pi-cafe-space:test
-npm run pi-cafe-space:build
-```
-
-当前测试覆盖协议校验、snapshot 压缩、受限文件访问和 relay WebSocket 流程。
-
-## Boundaries
-
-- relay 不拥有 Pi `AgentSession`。
-- 同一个 room 可以有多个独立 Pi host；每个实例有自己的 stream/session，Web 端通过“Pi 实例”选择器决定命令发往哪一个实例。
-- 同一个 `peerId` 的重连会替换旧连接，不同 Pi 实例不会互相踢出；默认 `peerId` 含进程内随机实例 ID，也可通过 `PI_COLLAB_PEER_ID` 显式指定。
-- Web 客户端不持有 Pi API Key，也不直接调用模型 provider。
-- 文件和历史命令由 relay 转发给当前 Pi extension；relay 本身不访问电脑磁盘。文件读取仅允许 canonical 项目根内的普通文件，隐藏常见凭据路径，并拒绝把文件系统根、用户主目录或其祖先当作远程文件浏览根。命令带 stream/session/project-root fence，避免上下文切换后复用旧请求。
-- prompt 回执是 `dispatched`，不是 provider 完成回执，因为 Pi 0.84.4 的 `sendUserMessage()` 返回 `void`。
-- relay 状态保存在单进程内存中，不承诺跨 relay 重启的 exactly-once。
-- daemon 不是当前运行模式，不能与原生 Pi CLI 同时拥有同一个 session。
-- 一个 room 最多保留 64 个 host state 和 256 个 browser client；relay 进程最多同时保留 256 个 room、512 个 WebSocket 连接，且未完成 hello 的连接最多 128 个（同一来源地址最多 32 个）。离线 host 和历史缓存默认保留 30 分钟；历史缓存读取会刷新相应的非活动计时器，host 重连会清理旧历史缓存并等待新 snapshot。单 host 的 pending command 也有数量上限。
+[安装与自托管](docs/INSTALL.md)说明新办公电脑、服务配置和升级；[房间指南](docs/ROOMS.md)说明二维码、身份与审批；[独立实例配置](docs/MANAGED_SESSIONS.md)说明可选的本机托管 Pi；[SSO 设计](docs/CAFE_SSO.md)说明账号会话与有效期；[开发交接](docs/DEVELOPMENT_HANDOFF.md)记录实现与验证边界；[历史 TS Relay](docs/LEGACY_TS_RELAY.md)仅供旧实现维护。
