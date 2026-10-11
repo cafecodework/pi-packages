@@ -9,7 +9,7 @@
 从父仓库根目录执行：
 
 ```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
+cd C:\Users\example-user\Documents\cafecodework-pi-packages
 npm install
 npm run pi-cafe-space:build
 npm run pi-cafe-space:relay:start

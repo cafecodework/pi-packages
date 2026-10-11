@@ -119,7 +119,7 @@ cloud镜像`pi-cafe-space-cloud:0.1.0-sctp-observe-20261004`，实际asset`asset
 
 Mac安装与Pi登记：`~/.local/share/pi-cafe-space/0.1.0-phone-connect-20261003`。受管LaunchAgent已指向新room-run并重新加载；没有结束用户Pi。原房间identity、credentials及room-device文件安装前后摘要完全相同。旧qr-fix登记已移除，旧文件保留。原服务文件备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-phone-connect.plist`；新plist SHA-256 `43592abc60baece3ff7fc6049b0f4594c38f19af77d09ee26f0f3d2faa788f43`。
 
-云端镜像`pi-cafe-space-cloud:0.1.0-phone-connect-20261003`、版本目录`/opt/stacks/pi-cafe-space/releases/phone-connect-20261003`。比较旧摘要、备份、临时端口冒烟后只重建cloud；Caddy字节和启动时间、TURN启动时间、原cloud配置保持。回执`phone-connect-deployment.json`，备份`backups/before-phone-connect-20261003`；Compose SHA-256 `36e8b4dad13da84cab035f50c36b06bbf04ebd0c1d34bc80acc575cad08d853a`。cloud配置SHA仍为`a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`。
+云端镜像`pi-cafe-space-cloud:0.1.0-phone-connect-20261003`、版本目录`/srv/cafe-example/pi-cafe-space/releases/phone-connect-20261003`。比较旧摘要、备份、临时端口冒烟后只重建cloud；Caddy字节和启动时间、TURN启动时间、原cloud配置保持。回执`phone-connect-deployment.json`，备份`backups/before-phone-connect-20261003`；Compose SHA-256 `36e8b4dad13da84cab035f50c36b06bbf04ebd0c1d34bc80acc575cad08d853a`。cloud配置SHA仍为`a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`。
 
 安装后只读确认网关运行、原房间登记在线、一个Pi连接，本机/公开首页均为`assets/index-C4-pbOfB.js`。手机必须刷新页面加载这个新版本；单在Pi执行/reload不会更新手机已打开的网页。
 

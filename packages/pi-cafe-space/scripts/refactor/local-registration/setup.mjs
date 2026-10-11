@@ -1,11 +1,13 @@
 // Explicit, one-item local Pi registration; no model/provider settings changes.
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdir,rename,copyFile,lstat} from 'node:fs/promises';
-import {join,resolve,dirname} from 'node:path';
+import {join,resolve,dirname,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {root,sha,run} from '../build.mjs';
 import {baseEnv} from '../native-support.mjs';
-const agent='C:/Users/dp/.pi/agent';const destination=resolve(agent,'cafe-space-local');const trial=join(root,'.refactor/manual-trial');
+const agent=process.env.CAFE_LEGACY_AGENT_DIR;
+assert(agent&&isAbsolute(agent),'Set CAFE_LEGACY_AGENT_DIR to the intended absolute Pi agent directory');
+const destination=resolve(agent,'cafe-space-local');const trial=join(root,'.refactor/manual-trial');
 const reports=join(root,'.refactor/reports/R18-registration');await mkdir(reports,{recursive:true});
 const phase=process.argv[2];
 if(phase==='prepare'){

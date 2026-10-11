@@ -93,9 +93,9 @@ Pi扩展：`~/.local/share/pi-cafe-space/0.1.0-mobile-ux-20261004`已安装并�
 
 办公网关：继续运行`~/.local/share/pi-cafe-space/0.1.0-dc-ready-fix-20261004`，没有重启。安装前后网关PID、LaunchAgent以及原room identity/credentials/room-device摘要均不变。LaunchAgent SHA仍为`414ab150bff4825ee7c45089f5bf93d8b9a6c98b6ce813e7142b33e043a30e7d`。因此localhost页面仍为前一版，不要为版本名不同重启已连通网关；本次手机界面在公共站点使用。
 
-公共cloud：`pi-cafe-space-cloud:0.1.0-mobile-ux-20261004`；服务器目录`/opt/stacks/pi-cafe-space/releases/mobile-ux-20261004`。精确资产`assets/index-CPJVxifv.js`，CSS`assets/index-SX4-fPMG.css`。先比较配置摘要、备份、独立37893端口冒烟，然后仅重建cloud；Caddy/TURN配置与启动时间不变。cloud重建会短暂影响远端信令，但不关闭办公端37891本地监听。
+公共cloud：`pi-cafe-space-cloud:0.1.0-mobile-ux-20261004`；服务器目录`/srv/cafe-example/pi-cafe-space/releases/mobile-ux-20261004`。精确资产`assets/index-CPJVxifv.js`，CSS`assets/index-SX4-fPMG.css`。先比较配置摘要、备份、独立37893端口冒烟，然后仅重建cloud；Caddy/TURN配置与启动时间不变。cloud重建会短暂影响远端信令，但不关闭办公端37891本地监听。
 
-服务器回执`/opt/stacks/pi-cafe-space/mobile-ux-deployment.json`，备份`backups/before-mobile-ux-20261004`。新Compose SHA`e6baba3a26e4c1adb8620259c07141261287d17b48222b2aa6917ad11786a4c7`；cloud配置仍`a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`，Caddy仍`f8355f9aeaa80ccd3a448473af73a03bfd57f6ff4e6d9ed5d5a616ea9920dd5e`。保留旧镜像与旧Compose用于有审阅的回退，不覆盖其他站点。
+服务器回执`/srv/cafe-example/pi-cafe-space/mobile-ux-deployment.json`，备份`backups/before-mobile-ux-20261004`。新Compose SHA`e6baba3a26e4c1adb8620259c07141261287d17b48222b2aa6917ad11786a4c7`；cloud配置仍`a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`，Caddy仍`f8355f9aeaa80ccd3a448473af73a03bfd57f6ff4e6d9ed5d5a616ea9920dd5e`。保留旧镜像与旧Compose用于有审阅的回退，不覆盖其他站点。
 
 最终41文件三平台归档：`.refactor/release/pack-QkL4Tj/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA-256 `cdce9b527f659b69dd52d8e90f32196bb18436294c914c204ba68f174f7d991b`；Linux程序`516b1c954352560583fcf9df94e17804df70e52322e35dec847087c044b6542a`、Mac程序`9c39de566a3023bfeed670e1680ac2e03b6f74a9ac7875fb407eaa5255f7019f`；Web摘要`22736482399cbb40be8ee1b3f148db7e38fd9ad52a775076dad2f604ab0625a9`。归档已校验，Go各包构建检查通过。尚未commit/push或发布npm/GitHub release。
 

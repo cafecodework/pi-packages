@@ -5,7 +5,7 @@
 ## 1. 采集信息
 
 - 采集时间：2026-09-10 13:25（本地时间，命令输出时间）
-- 仓库：`C:\Users\dp\Documents\cafecodework-pi-packages`
+- 仓库：`C:\Users\example-user\Documents\cafecodework-pi-packages`
 - 分支：`main`
 - HEAD：`cf20beaf65097173b78a632a79df615b9576e5ce`
 - HEAD subject：`fix(pi-cafe-space): harden relay, host projection, and process ownership`
@@ -30,7 +30,7 @@
 | npm | `D:\software\scoop\apps\nvm\current\nodejs\nodejs\npm.cmd`，`10.9.2` |
 | Windows PowerShell | `5.1.26100.9168` |
 | Go | `D:\dev\go\bin\go.exe`，`go1.24.2 windows/amd64` |
-| Go 环境 | `GOOS=windows`，`GOARCH=amd64`，`GOROOT=D:\dev\go`，`GOPATH=C:\Users\dp\go` |
+| Go 环境 | `GOOS=windows`，`GOARCH=amd64`，`GOROOT=D:\dev\go`，`GOPATH=C:\Users\example-user\go` |
 
 本轮没有安装依赖、修改 PATH、创建 Go module 或生成 Web 项目。
 

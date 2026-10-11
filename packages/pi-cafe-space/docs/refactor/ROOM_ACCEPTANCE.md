@@ -14,7 +14,7 @@
 
 复核后网页156项通过，remote/service race及go vet通过，三平台构建和11个Go包通过。本轮原协议/扩展511项、安装工具6项、安装集成4组、发行/源码重建6项等前序验证保留；未为此次无关修改伪造重复运行结果。最新公开站点临时房间测试 `.refactor/reports/room-public-reviewed-20261003/result.json` 已全部8组通过，退出0：真实公共网页/信令、独立二维码解码、错误密码门禁、两访客/两合成Pi、一次受控合成任务、窄屏、密码修改、链接重置及重启。provider请求0；浏览器与临时办公端仍在同一Mac，不冒充手机蜂窝或异网强制TURN验收。
 
-当前本机安装 `/Users/air/.local/share/pi-cafe-space/0.1.0-rooms-reviewed-20261003`，受管服务已重载且Pi包登记仅指向新版本。房间状态目录、本机登录令牌和Pi进程保持。当前云端镜像为 `pi-cafe-space-cloud:0.1.0-rooms-reviewed-20261003`，只重建cloud，原cloud配置与Caddy字节、TURN启动时间不变。
+当前本机安装 `/Users/example-user/.local/share/pi-cafe-space/0.1.0-rooms-reviewed-20261003`，受管服务已重载且Pi包登记仅指向新版本。房间状态目录、本机登录令牌和Pi进程保持。当前云端镜像为 `pi-cafe-space-cloud:0.1.0-rooms-reviewed-20261003`，只重建cloud，原cloud配置与Caddy字节、TURN启动时间不变。
 
 最新归档 `.refactor/release/pack-C3K5RL/cafecodework-pi-cafe-space-0.1.0.tgz`，43,412,799字节、37文件。SHA-256 `5d5359acfaa2cca4ba38c1b2c88517685bcfbe358ce1fc2f3fd9575ab302dba8`。Mac二进制 `1b41b92edcf3165ffc2940d2de10ccaa450c6bcba2fb78088e4518c1bbbd288f`；Linux `d6fdfd8f9e449127f337f8570dbc31e3f7f9ace44654511298521996204aee8b`；Web摘要 `66a8d49b52316416cbbf6366eafa609d7214848ee26d1ddb39cdde4988494a5c`。实际归档摘要、安装字节、运行路径与本机/公网 `index-SJV32FT8.js` 均已核对。
 
@@ -53,11 +53,11 @@
 
 ## 安装与部署
 
-当前稳定Mac安装：`/Users/air/.local/share/pi-cafe-space/0.1.0-rooms-install-20261003`。当前房间配置：`~/.config/pi-cafe-space/rooms-space/room-device.json`；身份在同目录identity/room.json。本机登录文件仍为 `~/.config/pi-cafe-space/credentials-37891.json`，未重置或复制到云端。
+当前稳定Mac安装：`/Users/example-user/.local/share/pi-cafe-space/0.1.0-rooms-install-20261003`。当前房间配置：`~/.config/pi-cafe-space/rooms-space/room-device.json`；身份在同目录identity/room.json。本机登录文件仍为 `~/.config/pi-cafe-space/credentials-37891.json`，未重置或复制到云端。
 
 已更新Pi包登记，旧安装目录保留。LaunchAgent `com.cafecodework.pi-cafe-relay` 已启用新room-run路径。没有终止Pi进程或更改provider/API key。最终doctor报告cloud.roomAccess=true、local.roomShare=true、配置匹配、身份文件私有存在；它显式标注health检查不能证明实际P2P。
 
-服务器镜像 `pi-cafe-space-cloud:0.1.0-rooms-install-20261003` 已运行，目录 `/opt/stacks/pi-cafe-space/releases/rooms-install-20261003`。仅重建本项目cloud服务，Caddy与TURN的配置/启动时间保持。旧账号设备目录路径404，公共房间模式启用。旧云端login.txt密钥不再用于新的访客入口。
+服务器镜像 `pi-cafe-space-cloud:0.1.0-rooms-install-20261003` 已运行，目录 `/srv/cafe-example/pi-cafe-space/releases/rooms-install-20261003`。仅重建本项目cloud服务，Caddy与TURN的配置/启动时间保持。旧账号设备目录路径404，公共房间模式启用。旧云端login.txt密钥不再用于新的访客入口。
 
 ## 可交付归档
 

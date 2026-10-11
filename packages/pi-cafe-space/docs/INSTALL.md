@@ -99,7 +99,7 @@ doctor只读取公开配置和房间身份文件元数据，不读取/传送密�
 
 **全新服务器且80/443空闲**才选择 `--proxy caddy`，生成独立Caddy服务及持久证书卷。它使用明确版本，不会升级机器上已有Caddy。该模式需要正确DNS和可达的80/443；现有Caddy冲突时不要强行启动第二个。
 
-上传整个新目录到服务器的新路径，例如`/opt/stacks/cafe-room`，校验`MANIFEST.sha256`。该目录包含TURN shared secret和独立内部运行密钥，必须私有保存，不上传Git或作为公共下载文件。
+上传整个新目录到服务器的新路径，例如`/srv/cafe-example/cafe-room`，校验`MANIFEST.sha256`。该目录包含TURN shared secret和独立内部运行密钥，必须私有保存，不上传Git或作为公共下载文件。
 
 经用户授权的服务器管理员在目录内执行：
 

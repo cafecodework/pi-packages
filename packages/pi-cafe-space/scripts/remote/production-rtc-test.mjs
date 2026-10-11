@@ -1,11 +1,14 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
+import { isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
-const {values}=parseArgs({options:{report:{type:'string'},mode:{type:'string'},browser:{type:'string'}},strict:true});
-const origin='https://space.cafecode.work';
-const {accessToken}=JSON.parse(await readFile('/Users/air/.config/pi-cafe-space/remote-space/access-keys.json','utf8'));
+// Legacy device-access diagnostic: explicit target and credential path only.
+const {values}=parseArgs({options:{report:{type:'string'},mode:{type:'string'},browser:{type:'string'},credentials:{type:'string'},device:{type:'string'},origin:{type:'string'}},strict:true});
+assert(values.credentials&&isAbsolute(values.credentials)&&values.device,'Pass --credentials /absolute/path and --device NAME for the intended legacy device');
+const origin=values.origin||'https://space.cafecode.work';
+const {accessToken}=JSON.parse(await readFile(values.credentials,'utf8'));
 const modes=values.mode?[values.mode]:['relay','direct','turn-udp','turn-tcp'];
 for(const mode of modes)assert(['relay','direct','turn-udp','turn-tcp'].includes(mode));
 let browser;const results=[];let activeMode='';
@@ -42,7 +45,7 @@ try{
    await page.goto(origin+'/#/rooms/main');await page.getByRole('button',{name:'English',exact:true}).click();
    await page.getByLabel('Access key',{exact:true}).fill(accessToken);
    await page.getByRole('button',{name:'Find my computers',exact:true}).click();
-   await page.getByRole('button',{name:/airdeMacBook-Air.*Online/}).waitFor();
+   await page.getByRole('button').filter({hasText:values.device}).filter({hasText:'Online'}).waitFor();
    await page.getByRole('combobox',{name:'Connection',exact:true}).click();
    await page.getByRole('option',{name:mode==='relay'?'Cloud relay':'WebRTC / TURN only',exact:true}).click();
    await page.getByRole('button',{name:'Connect to computer',exact:true}).click();

@@ -236,7 +236,7 @@ windows-amd64 binary SHA-256: a0f1bb438d108403c77c6d471a9a5dc086149d8681aefdc76a
 ```powershell
 # 当前目录：packages/pi-cafe-space
 $Node = "$PWD\.refactor\toolchains\node-v22.23.2-win-x64\node.exe"
-$PiRoot = 'C:\Users\dp\AppData\Local\pnpm\global\5\.pnpm\@earendil-works+pi-coding-a_92f687cfe951df750bec0864ffeea219\node_modules\@earendil-works\pi-coding-agent'
+$PiRoot = 'C:\Users\example-user\AppData\Local\pnpm\global\5\.pnpm\@earendil-works+pi-coding-a_92f687cfe951df750bec0864ffeea219\node_modules\@earendil-works\pi-coding-agent'
 & $Node scripts/refactor/native-acceptance.mjs --allow-native `
   --pi-root $PiRoot `
   --archive .refactor/release/pack-30bbqJ/cafecodework-pi-cafe-space-0.1.0.tgz `

@@ -57,14 +57,14 @@
 
 ## 4. 修改范围与现有进程保护
 
-仓库：`C:\Users\dp\Documents\cafecodework-pi-packages`。
+仓库：`C:\Users\example-user\Documents\cafecodework-pi-packages`。
 
 默认业务修改范围仅 `packages/pi-cafe-space/`。根 `package.json` / `package-lock.json` 只有任务卡显式允许时才可改；其他 Pi packages、用户 home 配置和外部旧副本不得动。
 
 每轮执行前后：
 
 ```powershell
-Set-Location -LiteralPath 'C:\Users\dp\Documents\cafecodework-pi-packages'
+Set-Location -LiteralPath 'C:\Users\example-user\Documents\cafecodework-pi-packages'
 git status --short --branch
 git diff --check
 ```
@@ -100,7 +100,7 @@ git diff --check
 以下在原生 Windows PowerShell 运行；每条外部命令后检查 `$LASTEXITCODE`，非零则停止：
 
 ```powershell
-Set-Location -LiteralPath 'C:\Users\dp\Documents\cafecodework-pi-packages'
+Set-Location -LiteralPath 'C:\Users\example-user\Documents\cafecodework-pi-packages'
 npm.cmd run typecheck
 if ($LASTEXITCODE -ne 0) { throw 'typecheck failed' }
 npm.cmd run pi-cafe-space:check
@@ -173,7 +173,7 @@ WSL 没有可用 Linux Node 时，不绕过原生 Windows 验证。不把复杂 
 下面是**用户决定开始实施后**使用的提示词。此处文本本身不是实施授权：
 
 ```text
-仓库：C:\Users\dp\Documents\cafecodework-pi-packages。
+仓库：C:\Users\example-user\Documents\cafecodework-pi-packages。
 只执行 packages/pi-cafe-space/docs/refactor/TASKS.md 的 R00。
 先完整阅读 packages/pi-cafe-space/docs/REFACTOR_EXECUTION.md
 和 packages/pi-cafe-space/docs/refactor/PROGRESS.md。
@@ -186,7 +186,7 @@ WSL 没有可用 Linux Node 时，不绕过原生 Windows 验证。不把复杂 
 上面这段是单任务授权示例，不能只替换编号后继续沿用其中的限制。连续执行使用下面的模板，由用户填写范围：
 
 ```text
-仓库：C:\Users\dp\Documents\cafecodework-pi-packages。
+仓库：C:\Users\example-user\Documents\cafecodework-pi-packages。
 本轮授权范围：【填写连续范围，例如 R01–R17；也可填写单个 Rxx / Rxx.n】。
 先读 packages/pi-cafe-space/docs/REFACTOR_EXECUTION.md、
 同目录 refactor/PROGRESS.md，以及 refactor/TASKS.md 的对应任务卡。

@@ -2,7 +2,7 @@
 
 此目录是用户本机试用接线，不是发行包，也不属于普通测试或R19生产切换。
 
-已启用的全局入口：`C:\Users\dp\.pi\agent\cafe-space-local\extension.ts`。
+已启用的全局入口：`C:\Users\example-user\.pi\agent\cafe-space-local\extension.ts`。
 它加载已安装的当前候选，默认连接 `ws://127.0.0.1:37983/ws` / `manual-trial`。
 
 - 正常启动 `pi` 自动注册；已有Pi由用户在各窗口执行 `/reload`。

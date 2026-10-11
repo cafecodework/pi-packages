@@ -5,9 +5,9 @@
 在父仓库根目录构建并安装：
 
 ```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
+cd C:\Users\example-user\Documents\cafecodework-pi-packages
 npm run pi-cafe-space:build
-pi install C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
+pi install C:\Users\example-user\Documents\cafecodework-pi-packages\packages\pi-cafe-space
 ```
 
 扩展默认在普通 `pi` 启动时连接 `ws://127.0.0.1:37891/ws`。如果 loopback relay 尚未运行，它会启动同一 package 中的 `dist/relay/index.js`。多个普通 `pi` 实例可以使用同一个 room；每个实例通过进程内稳定、跨进程随机的 `peerId` 注册为独立 host，不会互相拒绝。需要固定实例名称时可设置 `PI_COLLAB_PEER_ID`（不同运行时不要复用同一个值）。

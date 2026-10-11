@@ -241,10 +241,10 @@ relay 按 `hostId + sourcePeerId + requestId` 在目标 host 的内存状态中�
 在父仓库根目录构建并安装 `packages/pi-cafe-space`：
 
 ```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
+cd C:\Users\example-user\Documents\cafecodework-pi-packages
 npm install
 npm run pi-cafe-space:build
-pi install C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
+pi install C:\Users\example-user\Documents\cafecodework-pi-packages\packages\pi-cafe-space
 ```
 
 之后在任意项目目录直接运行：

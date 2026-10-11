@@ -11,9 +11,9 @@
 
 ## Café Space 文档入口
 
-[使用与部署概览](./packages/pi-cafe-space/README.md) · [安装与自托管](./packages/pi-cafe-space/docs/INSTALL.md) · [当前服务器版本与回退](./packages/pi-cafe-space/docs/DEPLOYMENT_SPACE.md) · [Café 账号与 SSO](./packages/pi-cafe-space/docs/CAFE_SSO.md) · [开发交接](./packages/pi-cafe-space/docs/DEVELOPMENT_HANDOFF.md)
+[使用与部署概览](./packages/pi-cafe-space/README.md) · [安装与自托管](./packages/pi-cafe-space/docs/INSTALL.md) · [通用部署与回退](./packages/pi-cafe-space/docs/DEPLOYMENT_SPACE.md) · [Café 账号与 SSO](./packages/pi-cafe-space/docs/CAFE_SSO.md) · [开发交接](./packages/pi-cafe-space/docs/DEVELOPMENT_HANDOFF.md)
 
-Space README 说明 cloud／identity／TURN／Caddy 和办公端 Pi 的分工、部署目录与常用命令；具体镜像、提交与验收记录集中在部署文档，避免入口只留下旧版 TS 中继说明。
+Space README 说明 cloud／identity／TURN／Caddy 和办公端 Pi 的分工，以及通用部署命令。实际服务器连接与运维明细保存在公开 Git 之外；文档中的用户和目录均使用明确示例。发布前检查见[文档隐私规范](./packages/pi-cafe-space/docs/PRIVACY.md)。
 
 ## 推荐配置
 

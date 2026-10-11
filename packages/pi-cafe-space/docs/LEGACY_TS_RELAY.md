@@ -6,7 +6,7 @@
 
 ---
 
-## 原 README
+## 原 README（个人路径已替换为示例）
 
 > **当前正式构建入口：Go Relay + React 网页。** 在本目录执行 `npm run build`，生成可安装目录 `.refactor/release/package`；执行 `npm run pack` 生成经过字节校验的 `.tgz`；需要服务器或其他办公系统时追加 `-- --platforms linux-amd64,windows-amd64`。`npm start`／`npm run relay` 启动已构建的 Go Relay。仓库根也提供 `pi-cafe-space:build`、`pi-cafe-space:pack`、`pi-cafe-space:start`。
 
@@ -63,10 +63,10 @@ dist/relay/public/       relay 提供的 Web/PWA
 要求 Node.js `>=22.19.0`。在父仓库根目录执行：
 
 ```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
+cd C:\Users\example-user\Documents\cafecodework-pi-packages
 npm install
 npm run pi-cafe-space:build
-pi install C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
+pi install C:\Users\example-user\Documents\cafecodework-pi-packages\packages\pi-cafe-space
 ```
 
 随后在任意项目目录运行普通 `pi`。扩展默认会：
@@ -92,7 +92,7 @@ pi
 通常由普通 `pi` 自动启动。也可以手动操作：
 
 ```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages
+cd C:\Users\example-user\Documents\cafecodework-pi-packages
 npm run pi-cafe-space:relay:start
 npm run pi-cafe-space:relay:stop
 ```
@@ -110,7 +110,7 @@ loopback 页面在当前 tab 没有已保存 token 时会自动使用本地开�
 在 package 目录使用显式高熵 token 启动：
 
 ```powershell
-cd C:\Users\dp\Documents\cafecodework-pi-packages\packages\pi-cafe-space
+cd C:\Users\example-user\Documents\cafecodework-pi-packages\packages\pi-cafe-space
 .\scripts\start-relay.ps1 `
   -Bind "0.0.0.0" `
   -HostToken "真实随机 host token" `

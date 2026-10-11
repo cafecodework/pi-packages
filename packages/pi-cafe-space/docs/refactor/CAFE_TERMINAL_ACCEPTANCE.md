@@ -78,11 +78,11 @@
 
 ## 实际安装与部署
 
-Mac版本 `/Users/air/.local/share/pi-cafe-space/0.1.0-cafe-terminal-20261003` 已安装并登记，旧扩展登记移除但旧文件保留。LaunchAgent `com.cafecodework.pi-cafe-relay` 已重载到新room-run；不是只改源码。没有结束用户Pi或强制其reload。安装前后对原本机凭据、room-device配置和身份文件逐字节摘要比较一致。
+Mac版本 `/Users/example-user/.local/share/pi-cafe-space/0.1.0-cafe-terminal-20261003` 已安装并登记，旧扩展登记移除但旧文件保留。LaunchAgent `com.cafecodework.pi-cafe-relay` 已重载到新room-run；不是只改源码。没有结束用户Pi或强制其reload。安装前后对原本机凭据、room-device配置和身份文件逐字节摘要比较一致。
 
 LaunchAgent SHA-256 `73a93e643987dd2762a4a144af7ba8e140ce1e83d47d827a2e711e1ae2050fb5`；旧服务文件备份在 `~/.local/share/pi-cafe-space/deploy-space-20261003/before-cafe-terminal.plist`。原状态路径 `~/.config/pi-cafe-space/rooms-space` 和 `credentials-37891.json`保持。
 
-服务器镜像 `pi-cafe-space-cloud:0.1.0-cafe-terminal-20261003` 已运行，版本目录 `/opt/stacks/pi-cafe-space/releases/cafe-terminal-20261003`。先比较旧配置摘要、新二进制和临时端口冒烟，再仅重建cloud；Caddy配置/启动时间及TURN启动时间保持。cloud配置SHA-256仍为 `a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`，Compose新SHA-256 `54697565ee0f344588f41004f01e6c92684158f9a6ae7c8a33fac6f4bdb78954`。服务器回执 `cafe-terminal-deployment.json`、备份 `backups/before-cafe-terminal-20261003`。
+服务器镜像 `pi-cafe-space-cloud:0.1.0-cafe-terminal-20261003` 已运行，版本目录 `/srv/cafe-example/pi-cafe-space/releases/cafe-terminal-20261003`。先比较旧配置摘要、新二进制和临时端口冒烟，再仅重建cloud；Caddy配置/启动时间及TURN启动时间保持。cloud配置SHA-256仍为 `a4e2f01142a3451608b15961dee65055718890715e59717ddfa4f64673d07fb9`，Compose新SHA-256 `54697565ee0f344588f41004f01e6c92684158f9a6ae7c8a33fac6f4bdb78954`。服务器回执 `cafe-terminal-deployment.json`、备份 `backups/before-cafe-terminal-20261003`。
 
 安装后实际只读检查确认：受管网关运行、终端接口可认证访问、房间已登记在线、本机和公开页均返回 `assets/index-CnILNDwY.js`。检查时0个生产Pi连接不代表P2P失败，应启动Pi或在已有Pi空闲时reload再分享。
 

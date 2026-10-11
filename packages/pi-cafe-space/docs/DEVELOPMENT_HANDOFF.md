@@ -1,5 +1,11 @@
 # 换机器继续开发
 
+## 公开交接与私有运维资料
+
+本文件保留源码、验证范围和历史技术决策。个人用户名、实际部署根已泛化；`example-user`、`/srv/cafe-example` 是示例，不是当前主机信息。未脱敏部署日志与回退依据已保存于维护者的仓库外私有目录，公开 [部署指南](DEPLOYMENT_SPACE.md) 不再包含服务器连接清单。不得用本文件示例推断真实路径后执行操作。
+
+按用户确认，本次修复当前公开文件和后续提交邮箱，不重写旧 Git 历史；旧提交或已克隆副本仍可能含早期信息。后续文档与提交审查见 [PRIVACY.md](PRIVACY.md)。本次文档脱敏不改变运行中的 Pi、网关或服务。
+
 ## 2026-10-11 必要修复与状态层：已提交、推送并部署
 
 Space功能提交`b38ddf73a592ddeb2bfab3b089856c1c40b3ead5`已推送`cafecodework/pi-packages/main`。主站身份修复与镜像配置提交`273a97e8288949306d218d5cb58ce420e14eeeb9`已推送`Shirtiny/edel-garden/refactor/control-gateway`：主站当前使用该分支，远端main是另一套旧代码且没有identity目录。本次从原分支远端最新c78fa28建立独立工作树，仅提交8个身份相关文件，不合并重构到main，不切换或覆盖主站原工作区。
@@ -8,7 +14,7 @@ Space功能提交`b38ddf73a592ddeb2bfab3b089856c1c40b3ead5`已推送`cafecodewor
 
 Pi扩展登记已更新为新安装目录，其他包、模型配置、房间身份/密码和审批设置保持。现有Pi进程未结束，需用户空闲时`/reload`加载新扩展；新开Pi直接加载新版。全局Pi仍为1.0.2，没有隐式升级为1.1.0，较新SDK事件仅在支持版本完整提供，旧版保持兼容/未知语义。只重载本项目网关、cloud与identity，Caddy/TURN未改动或重启。
 
-首轮identity切换遗漏原Compose项目名cafe-identity，命令失败、旧容器未被替换，Compose恢复后已核对健康；随后使用原项目名成功部署，没有重复构建或轮换密钥。今后命令须带`docker compose -p cafe-identity -f deploy/identity/compose.yaml`。部署回执在`/opt/stacks/pi-cafe-space/practical-deployment.json`，主站Git回执在`data/practical-fixes-20261011/publish-receipt.json`，本机回执在`.refactor/publish-practical-20261011/`。下面保留构建与测试过程。
+首轮identity切换遗漏原Compose项目名cafe-identity，命令失败、旧容器未被替换，Compose恢复后已核对健康；随后使用原项目名成功部署，没有重复构建或轮换密钥。今后命令须带`docker compose -p cafe-identity -f deploy/identity/compose.yaml`。部署回执在`/srv/cafe-example/pi-cafe-space/practical-deployment.json`，主站Git回执在`data/practical-fixes-20261011/publish-receipt.json`，本机回执在`.refactor/publish-practical-20261011/`。下面保留构建与测试过程。
 
 ### 实现与发布前验收
 
@@ -22,7 +28,7 @@ Pi扩展登记已更新为新安装目录，其他包、模型配置、房间身
 
 已核对：585项主包通过、1项原有跳过；277项网页与类型检查通过；Go remote/protocol/managed/service完整race和vet通过（103.781/3.175/4.956/3.901秒）。真实Pi1.1.0 SDK的完成、失败、自动重试、取消、结算前续轮5场景通过，报告`.refactor/reports/native-execution-practical-20261011/result.json`，外部模型/工具调用均0。主站身份16项协议/存储/限流/真实临时HTTP测试在固定Node LTS Docker构建中全部通过。本机Node24.0.2测试会有原有LTS/SQLite提示，不把它当作生产运行时覆盖；Docker构建补齐该覆盖。
 
-主站七个源码文件已核对摘要后写回`/opt/stacks/edel-garden/services/identity`，候选镜像`edel-garden-identity:0.1.0-practical-20261011`，ID`sha256:1c242b5de3a976838b5ca3260826155639fa3b7736637fe02c02cbda9e0715cf`。源码原基线022ead2在操作间变为7cdcd07；确认新提交未改身份目录且七文件基线未变后再应用，未覆盖主站其他工作。清单、旧源码、镜像测试与写回回执在服务器`data/practical-fixes-20261011`，本机编辑副本在`.refactor/identity-practical-20261011`，没有复制运行密钥或真实会话数据库。
+主站七个源码文件已核对摘要后写回`/srv/cafe-example/edel-garden/services/identity`，候选镜像`edel-garden-identity:0.1.0-practical-20261011`，ID`sha256:1c242b5de3a976838b5ca3260826155639fa3b7736637fe02c02cbda9e0715cf`。源码原基线022ead2在操作间变为7cdcd07；确认新提交未改身份目录且七文件基线未变后再应用，未覆盖主站其他工作。清单、旧源码、镜像测试与写回回执在服务器`data/practical-fixes-20261011`，本机编辑副本在`.refactor/identity-practical-20261011`，没有复制运行密钥或真实会话数据库。
 
 实际`npm run build`与`npm run pack -- --platforms linux-amd64,windows-amd64`均通过，默认启动器也已在随机本机端口验证Go/React资源并清理自有进程。47文件归档`.refactor/release/pack-iVHYXH/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`ba5b0d5a5f933f5a6786c24b26bbb229ed64db3635c4205dc204f945e40ebf57`；Web摘要`a3b61574f80038aa0bde5d0c8b9f3a1f40f38db4b5dbba7596a45ef5a4ecfa51`，JS`index-BJ3inzfA.js`、CSS`index-DV6MoyIo.css`。Linux/Windows仅交叉编译，既有大JS分块提示保留，没有为了小修复再拆包。
 

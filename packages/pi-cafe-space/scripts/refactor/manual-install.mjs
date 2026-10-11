@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir, copyFile, realpath } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, isAbsolute } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -9,7 +9,9 @@ import { releaseFiles } from './release.mjs';
 import { baseEnv } from './native-support.mjs';
 if(process.platform!=='win32'||!process.argv.includes('--allow-manual'))throw Error('Explicit manual installation/start authorization required');
 const directory=join(root,'.refactor/manual-trial');
-const piRoot='C:/Users/dp/AppData/Local/pnpm/global/5/.pnpm/@earendil-works+pi-coding-a_92f687cfe951df750bec0864ffeea219/node_modules/@earendil-works/pi-coding-agent';
+const piRoot=process.env.CAFE_LEGACY_PI_ROOT,modelsFile=process.env.CAFE_LEGACY_MODELS_FILE;
+assert(piRoot&&isAbsolute(piRoot),'Set CAFE_LEGACY_PI_ROOT to the intended absolute Pi package directory');
+assert(modelsFile&&isAbsolute(modelsFile),'Set CAFE_LEGACY_MODELS_FILE to the intended absolute local model configuration');
 const archive=join(root,'.refactor/release/pack-30bbqJ/cafecodework-pi-cafe-space-0.1.0.tgz');
 const pack=JSON.parse(await readFile(join(dirname(archive),'pack-report.json'),'utf8'));
 assert.equal(sha(await readFile(archive)),'32ee907b902174495ed3e1ea9307a8f339cd8df79ede3e7f23e50eeccc94bfd2');assert.deepEqual(pack.files,releaseFiles(pack.platforms));
@@ -25,7 +27,7 @@ await writeFile(join(directory,'npmrc'),'');await writeFile(join(directory,'glob
 run(process.execPath,[join(root,'.refactor/toolchains/npm11/package/bin/npm-cli.js'),'install','--prefix',directory,'--workspaces=false','--omit=dev','--ignore-scripts','--package-lock=false','--no-audit','--no-fund','--offline','--logs-dir',join(directory,'npm-logs'),'--userconfig',join(directory,'npmrc'),'--globalconfig',join(directory,'global-npmrc')],{cwd:directory,env:baseEnv(),timeout:120000});
 const pkg=join(directory,'node_modules/@cafecodework/pi-cafe-space');const require=createRequire(join(pkg,'package.json'));assert.ok((await realpath(require.resolve('ws'))).toLowerCase().startsWith(directory.toLowerCase()));assert.equal(JSON.parse(await readFile(require.resolve('ws/package.json'),'utf8')).version,'8.21.3');
 for(const mode of ['check','test'])assert.match(run(process.execPath,[join(pkg,'scripts/source-verify.mjs'),mode],{cwd:directory,env:{...baseEnv(),PATH:''},timeout:30000}),/Prebuilt artifact verification only/);
-const config={format:'pi-cafe-space-manual-trial-v1',root:directory,node:await realpath(process.execPath),piCli:join(piRoot,'dist/cli.js'),package:pkg,models:'C:/Users/dp/.pi/agent/models.json',chrome:await realpath(join(process.env.LOCALAPPDATA,'Google/Chrome SxS/Application/chrome.exe')),room:'manual-trial',peer:'manual-trial-pi',hostToken:randomBytes(24).toString('hex'),clientToken:randomBytes(24).toString('hex')};
+const config={format:'pi-cafe-space-manual-trial-v1',root:directory,node:await realpath(process.execPath),piCli:join(piRoot,'dist/cli.js'),package:pkg,models:modelsFile,chrome:await realpath(join(process.env.LOCALAPPDATA,'Google/Chrome SxS/Application/chrome.exe')),room:'manual-trial',peer:'manual-trial-pi',hostToken:randomBytes(24).toString('hex'),clientToken:randomBytes(24).toString('hex')};
 await writeFile(join(directory,'credentials.json'),JSON.stringify(config,null,2),{flag:'wx'});
 await writeFile(join(directory,'agent/settings.json'),JSON.stringify({enableInstallTelemetry:false,compaction:{enabled:false},retry:{enabled:false},defaultProjectTrust:'never'}));
 for(const name of ['manual-runtime.mjs','manual-verify.mjs','native-support.mjs','native-process.ps1'])await copyFile(fileURLToPath(new URL('./'+name,import.meta.url)),join(directory,name));

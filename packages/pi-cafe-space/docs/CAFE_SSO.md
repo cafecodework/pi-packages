@@ -1,8 +1,10 @@
 # Café账号与Space单点登录
 
+> 公开文档中的 `/srv/cafe-example` 为脱敏后的示例目录，不是线上路径。账号协议与公共产品域名保留；具体连接信息、私钥位置和回退文件由维护者在仓库外保存，见[文档隐私规范](PRIVACY.md)。
+
 ## 当前状态：已实现并上线
 
-2026-10-04。主站`https://www.cafecode.work`与Space`https://space.cafecode.work`已接入统一账号。用户确认这是测试环境，可直接修改原服务器项目；本机镜像仅用于编辑构建，21个明确的主站源码/部署文件已比较基线后回写`/opt/stacks/edel-garden`，其余原有未提交修改没有重置或覆盖。
+2026-10-04。主站`https://www.cafecode.work`与Space`https://space.cafecode.work`已接入统一账号。用户确认这是测试环境，可直接修改原服务器项目；本机镜像仅用于编辑构建，21个明确的主站源码/部署文件已比较基线后回写`/srv/cafe-example/edel-garden`，其余原有未提交修改没有重置或覆盖。
 
 Space本机与cloud运行`0.1.0-cafe-sso-20261004`。主站继续使用原账号、密码、2FA、刷新令牌与用户数据库，不新增Space注册或账号密码系统。新增身份服务只维护标准OIDC协议状态、应用会话及必要身份映射。
 
@@ -48,17 +50,17 @@ Space页面正常每15秒刷新应用会话，账号房间每20秒更新最长60
 
 ## 运行位置
 
-主站独立服务原项目：`/opt/stacks/edel-garden/services/identity`，Compose：`deploy/identity/compose.yaml`。容器`edel-garden-identity`、镜像`edel-garden-identity:0.1.0-cafe-sso-20261004`、镜像ID`sha256:5f7ee77d1a9ff9a89b7086016370a480d57be6e92830833077b8eab61faa5dfa`，回环监听127.0.0.1:20124，非root1000、只读程序、cap_drop ALL。实际基础运行时Node24.21.0 LTS Krypton，不可变基础镜像`node@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6`。
+主站独立服务原项目：`/srv/cafe-example/edel-garden/services/identity`，Compose：`deploy/identity/compose.yaml`。容器`edel-garden-identity`、镜像`edel-garden-identity:0.1.0-cafe-sso-20261004`、镜像ID`sha256:5f7ee77d1a9ff9a89b7086016370a480d57be6e92830833077b8eab61faa5dfa`，回环监听127.0.0.1:20124，非root1000、只读程序、cap_drop ALL。实际基础运行时Node24.21.0 LTS Krypton，不可变基础镜像`node@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6`。
 
 密钥：`.secrets/identity/keys.json`，用户1000、0600；数据库：`data/identity/sessions.sqlite`，父目录0700。密钥初始化只允许首次创建，未输出密钥内容。备份SQLite必须连同对应密钥安全备份，不能把keys.json提交到Git或放进前端资源。
 
-主站新静态资源：`/opt/stacks/caddy/config/cafe-console/cafe-sso-20261004`，容器路径`/etc/caddy/cafe-console/cafe-sso-20261004`，实际入口JS`index-DXT-MdS7.js`。Caddy仅将88个明确React页面和确实存在的新/assets交给新静态目录；旧chunk若不在新目录仍由原Control处理，其他模型/API路由不改。身份接口不记访问日志，敏感响应no-store/no-referrer。主站Control、Gateway、数据库及TURN没有重启，Caddy仅验证后平滑reload。
+主站新静态资源：`/srv/cafe-example/caddy/config/cafe-console/cafe-sso-20261004`，容器路径`/etc/caddy/cafe-console/cafe-sso-20261004`，实际入口JS`index-DXT-MdS7.js`。Caddy仅将88个明确React页面和确实存在的新/assets交给新静态目录；旧chunk若不在新目录仍由原Control处理，其他模型/API路由不改。身份接口不记访问日志，敏感响应no-store/no-referrer。主站Control、Gateway、数据库及TURN没有重启，Caddy仅验证后平滑reload。
 
-Caddy当前SHA`071cc7d4c30c732f64cf2f6ed5c1aa0455a585dbc218fd29f56eae1f54eaafc0`。原配置/21文件基线/身份构建和启动报告在`/opt/stacks/edel-garden/data/sso-backups/cafe-sso-20261004`，Caddy原文件`Caddyfile.before`。服务器主站原HEAD为2ce0ddd7e46e170fe2c1963ab597997dea17a249，原工作树大量修改未重置。
+Caddy当前SHA`071cc7d4c30c732f64cf2f6ed5c1aa0455a585dbc218fd29f56eae1f54eaafc0`。原配置/21文件基线/身份构建和启动报告在`/srv/cafe-example/edel-garden/data/sso-backups/cafe-sso-20261004`，Caddy原文件`Caddyfile.before`。服务器主站原HEAD为2ce0ddd7e46e170fe2c1963ab597997dea17a249，原工作树大量修改未重置。
 
 Space本机网关：`~/.local/share/pi-cafe-space/0.1.0-cafe-sso-20261004`。原Pi扩展登记、models.json/settings.json、房间身份/密码/审批文件不改；只在room-device.json增加固定accountIssuer，再重载受管网关。没有结束手动Pi任务。旧启动与配置分别备份`~/.local/share/pi-cafe-space/deploy-space-20261003/before-cafe-sso.plist`和`before-cafe-sso-room-device.json`。新plist SHA`31163147b09d911e37bf1f7268dd157d131dfbe99595d07d3a2901a164cbfd9a`，新room-device SHA`bd1f04b931a555cbc2420a74ff906603b5865c7098f4b3f3a4a17d53bece8766`。
 
-Spacecloud：`pi-cafe-space-cloud:0.1.0-cafe-sso-20261004`，程序`/opt/stacks/pi-cafe-space/releases/cafe-sso-20261004/pi-cafe-relay`。实际JS`assets/index-O6Lt3U16.js`、CSS`assets/index-pSHAdXQk.css`。Compose SHA`72c4b519be0023eb44863a93a4e75c23314f7fbeb09fb3fde4fac6a8eca04f77`，cloud.json SHA`5515d231648aa6459bb19bce532a8e067caa48d5ef20c96528c613cca8cff89a`，仅增加accountIssuer；回执`cafe-sso-deployment.json`，备份`backups/before-cafe-sso-20261004`。
+Spacecloud：`pi-cafe-space-cloud:0.1.0-cafe-sso-20261004`，程序`/srv/cafe-example/pi-cafe-space/releases/cafe-sso-20261004/pi-cafe-relay`。实际JS`assets/index-O6Lt3U16.js`、CSS`assets/index-pSHAdXQk.css`。Compose SHA`72c4b519be0023eb44863a93a4e75c23314f7fbeb09fb3fde4fac6a8eca04f77`，cloud.json SHA`5515d231648aa6459bb19bce532a8e067caa48d5ef20c96528c613cca8cff89a`，仅增加accountIssuer；回执`cafe-sso-deployment.json`，备份`backups/before-cafe-sso-20261004`。
 
 首次cloud切换因原子替换文件时仅保存0400权限、未保存65532所有者，导致配置不可读；旧版本回退同样受影响。日志确认permission denied后恢复65532:65532所有权，重新切换并通过健康/能力/公网检查。该短时故障与修正均保留在原操作回执，不能把首轮失败说成未影响服务。后续回退必须保留cloud.json的65532:65532及0400，不能只恢复内容。
 
