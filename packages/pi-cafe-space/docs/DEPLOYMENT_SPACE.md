@@ -4,7 +4,19 @@
 
 使用既有服务器 `152.53.90.186`，SSH端口 `2012`、账户 `root`；域名为 `space.cafecode.work`，用户已在Cloudflare设置，服务器已有Caddy。要求用Docker部署云端Café Space，复用既有Caddy而不是覆盖其他站点。手机、笔记本希望同网、异地和蜂窝均可访问。密码不保存在此文档、源码或部署文件中。
 
-## 2026-10-11 必要修复候选：已构建，未切换服务
+## 当前上线：2026-10-11 必要修复与运行状态层
+
+Space功能提交`b38ddf73a592ddeb2bfab3b089856c1c40b3ead5`已推送main；主站身份提交`273a97e8288949306d218d5cb58ce420e14eeeb9`已推送其当前使用的refactor/control-gateway分支，未把主站重构合并到main。主站通过独立工作树发布八个身份相关文件，原活动工作区未切换或重置。
+
+运行版本均为`0.1.0-practical-20261011`。本机目录`~/.local/share/pi-cafe-space/0.1.0-practical-20261011`，LaunchAgent SHA`0618fa5b9fd3ad1023e34b4b7d9e13ab74730fd89aab816dcce3a6d8ba0f5fb2`；Pi扩展登记已更新，旧Pi空闲时/reload加载，不结束其任务。全局Pi仍1.0.2，未在部署中升级。
+
+cloud镜像`pi-cafe-space-cloud:0.1.0-practical-20261011`，ID`sha256:616fb79741b2891302897c9794b3fe481d9376cbba86aa4bbf1cfb0afd984f02`；identity镜像`edel-garden-identity:0.1.0-practical-20261011`，ID`sha256:1c242b5de3a976838b5ca3260826155639fa3b7736637fe02c02cbda9e0715cf`且healthy。公网与本机JS/CSS精确匹配下方候选。5组实际上线浏览器检查通过，报告`.refactor/reports/practical-published-public-20261011/result.json`；未使用真实账号或模型，详见DEVELOPMENT_HANDOFF.md当前段。
+
+当前cloud Compose SHA`7d1219dc334d156413cd6582089f7d5d6c2e1e37751f10aee55d2925a6b8a043`，identity Compose SHA`71bacfe1f59190c63eaac25590b9de52ab1d00d074043146a43b82daaecae56d`。身份部署必须沿用`-p cafe-identity`，Space沿用`-p pi-cafe-space`；首次遗漏身份项目名的失败未替换旧容器，文件回退并核对后已按正确项目名部署。原挂载所有者/权限保留，密钥、房间密码/审批、模型配置和cloud.json未改，Caddy/TURN未重启。
+
+服务器部署回执`/opt/stacks/pi-cafe-space/practical-deployment.json`；cloud回退配置`backups/before-practical-20261011/compose.yaml`，identity回退配置`/opt/stacks/edel-garden/data/practical-fixes-20261011/before-deploy-compose.yaml`；本机回退启动文件`.refactor/publish-practical-20261011/before-gateway.plist`。回退仅操作目标服务，原旧版本目录与镜像未删除。构建候选和发布前测试保留如下。
+
+### 本次候选与发布前记录
 
 本轮按复审结论只修敏感路径遗漏、身份限流对象、验密错误分类与默认构建入口，并将聊天状态限制为Pi扩展有序来源；不加权限系统、改变SSO期限或重构基础设施。完整实现和测试记录见[DEVELOPMENT_HANDOFF.md](DEVELOPMENT_HANDOFF.md)顶部。
 
@@ -12,7 +24,7 @@ Space默认`npm run build`与`npm run pack -- --platforms linux-amd64,windows-am
 
 主站身份修复七文件已写回原项目，候选镜像`edel-garden-identity:0.1.0-practical-20261011`已在固定Node LTS Docker内通过16项测试。源文件和镜像构建回执在`/opt/stacks/edel-garden/data/practical-fixes-20261011`。操作期间主站HEAD由022ead2变为7cdcd07，经核对身份目录完全未变后保留新HEAD，只同步七个已测文件。
 
-**源码与镜像准备不等于上线。** 最后只读核对身份容器仍运行`edel-garden-identity:0.1.0-cafe-sso-20261004`且healthy；Space cloud实际镜像为`pi-cafe-space-cloud@sha256:b5744d4c6f04fe73bd1e9585a166b49fcdff04c5d236679bebbe178a3f20c270`，启动于2026-10-09。下面SSO段落中的旧镜像名、Caddy摘要和主站前端路径是历史发布记录，不代表其他会话修改后的当前值。本轮没有改Compose、Caddy、运行凭据、房间密码、审批选择、模型配置或Pi登记，没有重启任何日常服务，源码尚未提交推送。最终浏览器结果见开发交接当前段。
+发布前运行的identity镜像为cafe-sso-20261004，cloud为`sha256:b5744d4c6f04fe73bd1e9585a166b49fcdff04c5d236679bebbe178a3f20c270`；本轮已按顶部记录切换。下方SSO等章节均为历史记录，不代表当前镜像或资源版本。
 
 ## 历史上线版本：Café统一账号登录
 

@@ -1,6 +1,16 @@
 # 换机器继续开发
 
-## 2026-10-11 必要修复与状态层收尾（源码／候选，尚未切换运行服务）
+## 2026-10-11 必要修复与状态层：已提交、推送并部署
+
+Space功能提交`b38ddf73a592ddeb2bfab3b089856c1c40b3ead5`已推送`cafecodework/pi-packages/main`。主站身份修复与镜像配置提交`273a97e8288949306d218d5cb58ce420e14eeeb9`已推送`Shirtiny/edel-garden/refactor/control-gateway`：主站当前使用该分支，远端main是另一套旧代码且没有identity目录。本次从原分支远端最新c78fa28建立独立工作树，仅提交8个身份相关文件，不合并重构到main，不切换或覆盖主站原工作区。
+
+本机安装/网关、Space cloud及主站identity均已切换`0.1.0-practical-20261011`。cloud镜像ID`sha256:616fb79741b2891302897c9794b3fe481d9376cbba86aa4bbf1cfb0afd984f02`，identity镜像ID保持下方已测试候选。公网和本机已实际返回`index-BJ3inzfA.js`与`index-DV6MoyIo.css`。上线后5组公网浏览器检查全部通过，报告`.refactor/reports/practical-published-public-20261011/result.json`：真实登录入口/取消返回、独立密码与访客WebRTC、未登录声明拒绝，1次合成prompt、0模型请求，未代登真实账号。
+
+Pi扩展登记已更新为新安装目录，其他包、模型配置、房间身份/密码和审批设置保持。现有Pi进程未结束，需用户空闲时`/reload`加载新扩展；新开Pi直接加载新版。全局Pi仍为1.0.2，没有隐式升级为1.1.0，较新SDK事件仅在支持版本完整提供，旧版保持兼容/未知语义。只重载本项目网关、cloud与identity，Caddy/TURN未改动或重启。
+
+首轮identity切换遗漏原Compose项目名cafe-identity，命令失败、旧容器未被替换，Compose恢复后已核对健康；随后使用原项目名成功部署，没有重复构建或轮换密钥。今后命令须带`docker compose -p cafe-identity -f deploy/identity/compose.yaml`。部署回执在`/opt/stacks/pi-cafe-space/practical-deployment.json`，主站Git回执在`data/practical-fixes-20261011/publish-receipt.json`，本机回执在`.refactor/publish-practical-20261011/`。下面保留构建与测试过程。
+
+### 实现与发布前验收
 
 用户复审后要求只做必要修复，不增加权限体系或大重构。本轮在原Pi1.1.0未提交工作上实现：
 
@@ -20,7 +30,7 @@
 
 保留的检查边界：首轮默认构建因工具子进程PATH缺Node而未编译，随后只在测试shell使用既有Node/Go路径通过。网页旧room.denied兼容断言首次失败后恢复无code兼容，没有删除测试。首轮本次浏览器因旧正则“Incorrect password”不匹配新文案“Incorrect room password”超时，保留`.refactor/reports/practical-fixes-browser-20261011/result.json`；修正两处定位后同一应用包21组通过。一次有界等待调用被工具拒绝，没有调整权限或重跑任务，最终读原操作输出确认通过。
 
-最后只读核对主站七文件与测试清单一致，身份容器仍为cafe-sso-20261004且healthy；Space cloud为其他会话已部署的`sha256:b5744d4c6f04fe73bd1e9585a166b49fcdff04c5d236679bebbe178a3f20c270`，不是本轮候选。运行中的Pi、网关、cloud、身份容器、Caddy/TURN均未因本轮修改而重启；本轮未提交推送或部署。源码交接最终结果在仓库，包内随构建封装的文档可能仍写浏览器验收待核对，应以本段与实际报告为准。
+发布前曾核对旧identity容器与其他会话发布的cloud仍在运行；该状态已由顶部本次正式切换记录取代。本轮候选代码及归档字节未因Git提交改变，发布结果以顶部、实际镜像和公网报告为准。包内随构建封装的文档可能仍保留较早检查状态，不代表当前上线状态。
 
 ## 原实现与边界
 
