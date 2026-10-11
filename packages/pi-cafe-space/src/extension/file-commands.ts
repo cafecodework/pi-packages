@@ -91,16 +91,38 @@ function isWindowsDeviceName(segment: string): boolean {
 }
 
 function isBlockedPath(requestedPath: string): boolean {
-  return requestedPath.split(/[\\/]+/).some((segment) => {
+  const parts = requestedPath.split(/[\\/]+/).map(comparablePathSegment);
+  // These are application runtime namespaces, not ordinary project files.
+  if (parts.some((part, i) => part === '.config' && parts[i + 1] === 'pi-cafe-space' || part === 'data' && parts[i + 1] === 'identity')) return true;
+  return parts.some((segment) => {
     const lower = comparablePathSegment(segment);
-    return isWindowsDeviceName(segment) || lower === ".git" || lower === ".pi" || lower === ".runtime" || lower === ".ssh" || lower === ".aws" ||
+    return isWindowsDeviceName(segment) || lower === ".git" || lower === ".pi" || lower === ".secrets" || lower === ".runtime" || lower === ".ssh" || lower === ".aws" ||
       lower === ".azure" || lower === ".gnupg" || lower === ".kube" || lower === ".docker" ||
       lower.startsWith(".env") || lower === ".npmrc" || lower === ".pypirc" ||
       lower === ".netrc" || lower === ".git-credentials" || lower === "auth.json" || lower === "models.json" ||
-      lower === "credentials.json" || lower === "id_rsa" || lower === "id_ed25519" || lower.endsWith(".pem") ||
+      lower === "credentials.json" || /^credentials-\d+\.json$/.test(lower) || lower === "id_rsa" || lower === "id_ed25519" || lower.endsWith(".pem") ||
       lower.endsWith(".key") || lower.endsWith(".p12") || lower.endsWith(".pfx") || lower.endsWith(".jks") ||
       lower.endsWith(".keystore");
   });
+}
+
+function isPrivateRuntimePath(path: string): boolean {
+  const normalize = (value: string) => { const absolute = resolve(value); return process.platform === 'win32' ? absolute.toLowerCase() : absolute; };
+  const candidate = normalize(path);
+  const directories = [join(homedir(), '.config', 'pi-cafe-space'), process.env.PI_CODING_AGENT_DIR];
+  for (const value of directories) {
+    if (!value || !isAbsolute(value)) continue;
+    const root = normalize(value);
+    if (candidate === root || candidate.startsWith(root.endsWith(sep) ? root : root + sep)) return true;
+  }
+  // Read path configuration only, never the credential/database contents.
+  for (const name of ['PI_CAFE_CREDENTIALS_FILE', 'PI_CAFE_REMOTE_CONFIG', 'PI_COLLAB_MANAGED_CONFIG', 'PI_CAFE_ROOM_IDENTITY_FILE', 'CAFE_IDENTITY_KEYS', 'CAFE_IDENTITY_DATABASE']) {
+    const value = process.env[name];
+    if (!value || !isAbsolute(value)) continue;
+    const file = normalize(value);
+    if (candidate === file || name === 'CAFE_IDENTITY_DATABASE' && ['-wal', '-shm', '-journal'].some(suffix => candidate === file + suffix)) return true;
+  }
+  return false;
 }
 
 async function projectPath(cwd: string, requestedPath: string): Promise<string> {
@@ -124,7 +146,7 @@ async function projectPath(cwd: string, requestedPath: string): Promise<string> 
   // a remote browser for that directory. Check the canonical root as well as
   // each requested descendant; this also covers a cwd symlink whose target
   // lands under a sensitive path.
-  if (isBlockedPath(root)) throw new FileCommandError("SENSITIVE_PATH", "This path is hidden from remote clients");
+  if (isBlockedPath(root) || isPrivateRuntimePath(root)) throw new FileCommandError("SENSITIVE_PATH", "This path is hidden from remote clients");
   const rootAnchor = parsePath(root).root;
   let canonicalHome: string;
   try {
@@ -148,6 +170,7 @@ async function projectPath(cwd: string, requestedPath: string): Promise<string> 
   if (!rootInfo?.isDirectory()) throw new FileCommandError("PROJECT_UNAVAILABLE", "Project directory is unavailable");
   if (isAbsolute(requestedPath)) throw new FileCommandError("PATH_NOT_ALLOWED", "Only paths inside the Pi project are allowed");
   const candidate = resolve(root, requestedPath || ".");
+  if (isPrivateRuntimePath(candidate)) throw new FileCommandError('SENSITIVE_PATH', 'This runtime file is not shared');
   const lexicalOutside = relative(root, candidate);
   if (lexicalOutside === ".." || lexicalOutside.startsWith(`..${sep}`) || isAbsolute(lexicalOutside)) {
     throw new FileCommandError("PATH_NOT_ALLOWED", "The requested path is outside the Pi project");
@@ -183,7 +206,7 @@ async function projectPath(cwd: string, requestedPath: string): Promise<string> 
   if (outside === ".." || outside.startsWith(`..${sep}`) || isAbsolute(outside)) {
     throw new FileCommandError("PATH_NOT_ALLOWED", "The requested path is outside the Pi project");
   }
-  if (isBlockedPath(outside)) throw new FileCommandError("SENSITIVE_PATH", "This path is hidden from remote clients");
+  if (isBlockedPath(outside) || isPrivateRuntimePath(target)) throw new FileCommandError("SENSITIVE_PATH", "This path is hidden from remote clients");
   return target;
 }
 
@@ -255,7 +278,7 @@ export async function listProjectDirectory(cwd: string, requestedPath: string): 
         scanTruncated = true;
         break;
       }
-      if (!isBlockedPath(entry.name)) visibleEntries.push(entry);
+      if (!isBlockedPath(join(directory, entry.name)) && !isPrivateRuntimePath(join(directory, entry.name))) visibleEntries.push(entry);
     }
     // Recheck the pathname after enumeration as well. The open directory
     // handle remains bound to the originally validated object, while this

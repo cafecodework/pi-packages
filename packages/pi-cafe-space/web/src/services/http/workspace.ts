@@ -1,6 +1,9 @@
 import axios from 'axios';
+import {canonicalExecution,isExecutionState,type ExecutionState} from '../../../../src/protocol/execution';
+import type {SessionSnapshot} from '../../../../src/protocol/index';
+export function executionScope(snapshot:Pick<SessionSnapshot,'streamId'|'sessionId'|'lastEventSeq'>|null|undefined):string|null{return snapshot?JSON.stringify([snapshot.streamId,snapshot.sessionId,snapshot.lastEventSeq]):null;}
 export interface ManagedProject { id: string; name: string; room: string; cwd: string }
-export interface ManagedSession { id: string; projectId: string; room: string; name: string; hostId: string; status: 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed'; title?: string; error?: string }
+export interface ManagedSession { id: string; projectId: string; room: string; name: string; hostId: string; status: 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed'; title?: string; error?: string; execution?:ExecutionState }
 export interface ManagedInventory { projects: ManagedProject[]; sessions: ManagedSession[]; maxActive: number }
 export type ManagedRequest = { room: string; operation: 'list' } | { room: string; operation: 'create'; id: string; projectId: string; name: string } | { room: string; operation: 'open' | 'close'; id: string };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -8,7 +11,8 @@ const text = (value: unknown, max: number): value is string => typeof value === 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 export function parseManagedSession(value: unknown, room: string): ManagedSession {
   if (!object(value) || !uuid(value.id) || value.room !== room || !text(value.projectId, 64) || !text(value.name, 256) || value.hostId !== 'managed-' + value.id || !['starting','ready','stopping','stopped','failed'].includes(String(value.status)) || (value.title !== undefined && !text(value.title,256)) || (value.error !== undefined && !text(value.error,128))) throw Error('INVALID_MANAGED_RESPONSE');
-  return value as unknown as ManagedSession;
+  if(value.execution!==undefined&&!isExecutionState(value.execution))throw Error('INVALID_MANAGED_RESPONSE');
+  return {id:value.id,projectId:value.projectId,room,name:value.name,hostId:value.hostId,status:value.status as ManagedSession['status'],...(value.title===undefined?{}:{title:value.title as string}),...(value.error===undefined?{}:{error:value.error as string}),...(value.execution===undefined?{}:{execution:canonicalExecution(value.execution)})};
 }
 export function parseManagedInventory(value: unknown, room: string): ManagedInventory {
   if (!object(value) || !Array.isArray(value.projects) || value.projects.length > 16 || !Array.isArray(value.sessions) || value.sessions.length > 100 || value.maxActive !== 8) throw Error('INVALID_MANAGED_RESPONSE');

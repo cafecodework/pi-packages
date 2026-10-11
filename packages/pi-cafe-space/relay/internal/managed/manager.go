@@ -19,6 +19,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/auth"
+	"github.com/cafecodework/pi-packages/packages/pi-cafe-space/relay/internal/protocol"
 )
 
 // ponytail: bounded registry, no automatic deletion; add explicit archive/delete
@@ -56,6 +57,8 @@ type Record struct {
 	HostID    string `json:"hostId"`
 	Status    string `json:"status"`
 	Error     string `json:"error,omitempty"`
+	// Set only on inventory copies from the current owned RPC process.
+	Execution protocol.Object `json:"execution,omitempty"`
 }
 type Request struct {
 	Room      string `json:"room"`
@@ -71,6 +74,7 @@ type process struct {
 	release func()
 	ready   bool
 	naming  bool
+	execution rpcExecution
 }
 type Manager struct {
 	mu                  sync.Mutex
@@ -185,6 +189,7 @@ func Load(path, relayURL, token string) (*Manager, error) {
 		ids[r.ID] = true
 		m.records[i].Status = "stopped"
 		m.records[i].Error = ""
+		m.records[i].Execution = nil
 	}
 	loaded = true
 	return m, nil
@@ -210,7 +215,9 @@ func (m *Manager) project(id, room string) *Project {
 	return nil
 }
 func (m *Manager) save() error {
-	b, err := json.Marshal(m.records)
+	records:=append([]Record(nil),m.records...)
+	for i:=range records{records[i].Execution=nil}
+	b, err := json.Marshal(records)
 	if err != nil {
 		return err
 	}
@@ -242,6 +249,8 @@ func (m *Manager) inventory(room string) any {
 	}
 	for _, r := range m.records {
 		if r.Room == room {
+			r.Execution=nil
+			if p:=m.active[r.ID];p!=nil&&p.ready&&r.Status=="ready"{r.Execution=p.execution.snapshot()}
 			records = append(records, r)
 		}
 	}
@@ -455,21 +464,15 @@ func (m *Manager) read(p *process, id string, stdout io.Reader) {
 			skipping = false
 			continue
 		}
-		var event struct {
-			Type    string `json:"type"`
-			ID      string `json:"id"`
-			Method  string `json:"method"`
-			Success bool   `json:"success"`
-			Data    struct {
-				SessionID   string `json:"sessionId"`
-				SessionName string `json:"sessionName"`
-			} `json:"data"`
-		}
+		var event rpcEvent
 		parseErr := json.Unmarshal(line, &event)
 		line = line[:0]
 		if parseErr != nil {
 			continue
 		}
+		m.mu.Lock()
+		if m.active[id]==p { p.execution.observe(event) }
+		m.mu.Unlock()
 		if event.Type == "response" && (event.ID == "managed-ready" || event.ID == "managed-close") {
 			m.mu.Lock()
 			for i := range m.records {

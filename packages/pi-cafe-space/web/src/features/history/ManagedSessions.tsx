@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next';
 import type { AppOwner } from '../../app/owner';
 import { useCollabStore } from '../../state/useCollabStore';
 import { useRemoteState } from '../../services/remote/useRemoteState';
-import { parseManagedInventory, parseManagedSession, type ManagedInventory, type ManagedRequest, type ManagedSession } from '../../services/http/workspace';
+import { executionScope, parseManagedInventory, parseManagedSession, type ManagedInventory, type ManagedRequest, type ManagedSession } from '../../services/http/workspace';
 import { Button, Input } from '../../components/ui/Controls';
 import { ChoiceSelect } from '../../components/ui/ChoiceSelect';
 import { Drawer } from '../../components/ui/Drawer';
 import { Field, FieldGroup, FieldLabel } from '../../components/ui/shadcn/field';
 import { Icon } from '../../components/ui/Icon';
 import styles from './History.module.scss';
+import { executionLabel, executionView } from '../chat/components/executionPresentation';
 
 export function useManagedSessions(owner: AppOwner, room: string, roomBase: string, supported: boolean) {
   const state = useCollabStore(owner.store, s=>s); const navigate = useNavigate();
@@ -24,6 +25,8 @@ export function useManagedSessions(owner: AppOwner, room: string, roomBase: stri
   const enabled = available && state.connection.status === 'authenticated';
   const [inventory,setInventory] = useState<ManagedInventory>({projects:[],sessions:[],maxActive:8});
   const [error,setError] = useState<string|null>(null);
+  const [executionFences,setExecutionFences]=useState<Map<string,string|null>>(new Map());
+  const executionReadKey=useRef<string|null>(null);
   const [busy,setBusy] = useState(false); const latch = useRef(false);
   const [dialog,setDialog] = useState<{mode:'create'|'close';trigger:HTMLElement;key:string;id:string}|null>(null);
   const [name,setName] = useState(''); const [project,setProject] = useState('');
@@ -31,13 +34,14 @@ export function useManagedSessions(owner: AppOwner, room: string, roomBase: stri
   const [revision,setRevision] = useState(0);
   const refresh = useCallback(()=>setRevision(n=>n+1),[]);
   useEffect(()=>{setDialog(null);setError(null);setPending(null);},[key]);
-  useEffect(()=>{setInventory({projects:[],sessions:[],maxActive:8});},[room,state.connection.generation,state.connection.status]);
+  useEffect(()=>{setInventory({projects:[],sessions:[],maxActive:8});setExecutionFences(new Map());},[room,state.connection.generation,state.connection.status]);
   useEffect(()=>{
     if(!enabled)return;
     const controller=new AbortController(); let timer: ReturnType<typeof setTimeout>;
     const poll=async()=>{
-      try {const data=parseManagedInventory(await owner.workspace({room,operation:'list'},controller.signal),room);if(!controller.signal.aborted&&current.current===key&&liveKey()===key)setInventory(data);}
-      catch(e){if(!controller.signal.aborted&&current.current===key&&liveKey()===key)setError(e instanceof Error?e.message:'MANAGER_UNAVAILABLE');}
+      const before=new Map([...owner.store.getSnapshot().hosts].map(([id,host])=>[id,executionScope(host.snapshot)]));
+      try {const data=parseManagedInventory(await owner.workspace({room,operation:'list'},controller.signal),room);if(!controller.signal.aborted&&current.current===key&&liveKey()===key){executionReadKey.current=key;setInventory(data);setExecutionFences(before);}}
+      catch(e){if(!controller.signal.aborted&&current.current===key&&liveKey()===key){setExecutionFences(new Map());setError(e instanceof Error?e.message:'MANAGER_UNAVAILABLE');}}
       if(!controller.signal.aborted)timer=setTimeout(poll,3000);
     };
     void poll();return()=>{controller.abort();clearTimeout(timer);};
@@ -77,11 +81,17 @@ export function useManagedSessions(owner: AppOwner, room: string, roomBase: stri
     if (!enabled || !owner.store.getSnapshot().hosts.has(hostId)) return;
     owner.selectHost(hostId); navigate(roomBase || '/');
   };
-  return { owner,room,enabled,supported:available,canManage,canClose,inventory,error,busy,dialog,name,project,pending,setName,setProject,setDialog,openNew,closeSession,operate,viewSession,refresh,key };
+  const observedExecution=(hostId:string)=>{
+    const host=owner.store.getSnapshot().hosts.get(hostId),record=inventory.sessions.find(s=>s.hostId===hostId);
+    if(executionReadKey.current!==key||!enabled||!host||host.stale||!host.info.connected||host.info.ready===false||record?.status!=='ready'||!record.execution)return undefined;
+    const fence=executionScope(host.snapshot);
+    return fence!==null&&executionFences.get(hostId)===fence?record.execution:undefined;
+  };
+  return { observedExecution,owner,room,enabled,supported:available,canManage,canClose,inventory,error,busy,dialog,name,project,pending,setName,setProject,setDialog,openNew,closeSession,operate,viewSession,refresh,key };
 }
 export type ManagedController = ReturnType<typeof useManagedSessions>;
 export function ManagedSessionList({control:c,query=''}:{control:ManagedController;query?:string}) {
-  const {t}=useTranslation();
+  const {t,i18n}=useTranslation();
   if(!c.supported)return null;
   return <section className={styles.managed} aria-label={t('managedSessions')}>
     <div className={styles.heading}><h2>{t('managedSessions')}</h2><Button variant="quiet" aria-label={t('loadManaged')} onClick={c.refresh}><Icon name="refresh"/></Button></div>
@@ -90,7 +100,8 @@ export function ManagedSessionList({control:c,query=''}:{control:ManagedControll
     <ul>{c.inventory.sessions.filter(s=>[s.name,s.title,c.inventory.projects.find(p=>p.id===s.projectId)?.cwd,c.owner.store.getSnapshot().hosts.get(s.hostId)?.snapshot?.sessionName].some(value=>value?.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))).map(s=>{
       const host=c.owner.store.getSnapshot().hosts.get(s.hostId);
       const active=['starting','ready','stopping'].includes(s.status);
-      return <li key={s.id}><div className={styles.managedIdentity}><strong>{host?.snapshot?.sessionName||s.title||s.name}</strong><small>{t(`managedStatus.${s.status}`)}</small></div>
+      const execution=c.observedExecution(s.hostId);
+      return <li key={s.id}><div className={styles.managedIdentity}><strong>{host?.snapshot?.sessionName||s.title||s.name}</strong><small>{t(`managedStatus.${s.status}`)}</small>{execution&&executionView(execution).kind&&<small data-managed-execution={execution.activity} title={i18n.language.startsWith('zh')?'当前托管进程的结构化RPC观察；不是任务验收':'Structured observations from this owned RPC process; not task verification'}>{executionLabel(executionView(execution),i18n.language.startsWith('zh'))}</small>}</div>
         <div className={styles.managedActions}>
           <Button variant="quiet" disabled={!c.enabled||c.busy||s.status==='stopping'||!!c.pending||(!active&&!c.canManage)||(active&&!host?.info.connected)} onClick={()=>active?c.viewSession(s.hostId):void c.operate({room:c.room,operation:'open',id:s.id})}>{t(active?'viewSession':'openSession')}</Button>
           {active&&c.canClose&&<Button variant="quiet" disabled={!c.enabled||c.busy||s.status==='stopping'} onClick={e=>c.closeSession(s.id,e.currentTarget)}>{t('closeManaged')}</Button>}

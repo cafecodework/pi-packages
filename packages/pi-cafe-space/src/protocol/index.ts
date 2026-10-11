@@ -1,3 +1,6 @@
+import { canonicalExecution, isExecutionState, isPromptKind, type ExecutionState, type PromptKind } from './execution.js';
+export { canonicalExecution, isExecutionState, isPromptKind, type ExecutionState, type PromptKind } from './execution.js';
+
 export const PROTOCOL_VERSION = 1 as const;
 export const MAX_FRAME_BYTES = 256 * 1024;
 const MAX_TRANSCRIPT_TEXT = 64 * 1024;
@@ -74,6 +77,8 @@ export interface SessionSnapshot {
   thinkingLevel: ThinkingLevel;
   phase: AgentPhase;
   hasPendingMessages: boolean;
+  /** Structured runtime observations; absent on legacy hosts, not an authorization signal. */
+  execution?: ExecutionState;
   /** Native Pi lifecycle commands; absent on older extensions. */
   sessionControl?: boolean;
   /** Slash command discovery/execution and bounded project-file references. */
@@ -85,7 +90,7 @@ export interface SessionSnapshot {
 }
 
 export type CollabEvent =
-  | { kind: "session_state"; phase: AgentPhase; hasPendingMessages: boolean }
+  | { kind: "session_state"; phase: AgentPhase; hasPendingMessages: boolean; execution?: ExecutionState }
   | { kind: "message_started"; message: TranscriptMessage }
   | { kind: "message_delta"; messageId: string; channel: "text" | "thinking"; delta: string; partIndex?: number }
   | { kind: "message_finished"; message: TranscriptMessage }
@@ -94,7 +99,7 @@ export type CollabEvent =
   | { kind: "tool_finished"; tool: ToolExecution }
   | { kind: "model_changed"; model: ModelRef | null }
   | { kind: "thinking_changed"; level: ThinkingLevel }
-  | { kind: "ui_wait"; waiting: boolean; title: string | null }
+  | { kind: "ui_wait"; waiting: boolean; title: string | null; promptKind?: PromptKind }
   | { kind: "notice"; level: "info" | "warning" | "error"; message: string };
 
 export interface EventEnvelope {
@@ -583,6 +588,7 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     (value.phase === "idle" || value.phase === "running" || value.phase === "waiting_local_ui") &&
     (value.sessionControl === undefined || typeof value.sessionControl === "boolean") &&
     (value.inputAssist === undefined || typeof value.inputAssist === "boolean") &&
+    (value.execution === undefined || isExecutionState(value.execution)) &&
     typeof value.hasPendingMessages === "boolean" && Array.isArray(value.messages) && value.messages.length <= 1_000 &&
     value.messages.every(isTranscriptMessage) && (value.historyTruncated === undefined || typeof value.historyTruncated === "boolean") && Array.isArray(value.tools) && value.tools.length <= 500 &&
     value.tools.every(isToolExecution) && isNonNegativeInteger(value.lastEventSeq) && value.lastEventSeq <= MAX_EVENT_SEQUENCE;
@@ -618,7 +624,7 @@ function isCollabEvent(value: unknown): value is CollabEvent {
   switch (value.kind) {
     case "session_state":
       return (value.phase === "idle" || value.phase === "running" || value.phase === "waiting_local_ui") &&
-        typeof value.hasPendingMessages === "boolean";
+        typeof value.hasPendingMessages === "boolean" && (value.execution === undefined || isExecutionState(value.execution));
     case "message_started":
     case "message_finished":
       return isTranscriptMessage(value.message);
@@ -636,7 +642,7 @@ function isCollabEvent(value: unknown): value is CollabEvent {
     case "thinking_changed":
       return isThinkingLevel(value.level);
     case "ui_wait":
-      return typeof value.waiting === "boolean" && isNullableString(value.title, 512);
+      return typeof value.waiting === "boolean" && isNullableString(value.title, 512) && (value.promptKind === undefined || isPromptKind(value.promptKind));
     case "notice":
       return (value.level === "info" || value.level === "warning" || value.level === "error") &&
         isString(value.message, 16_384);
@@ -822,7 +828,7 @@ export function canonicalCommandPayload(payload: CommandPayload): CommandPayload
 export function canonicalEvent(event: CollabEvent): CollabEvent {
   switch (event.kind) {
     case "session_state":
-      return { kind: "session_state", phase: event.phase, hasPendingMessages: event.hasPendingMessages };
+      return { kind: "session_state", phase: event.phase, hasPendingMessages: event.hasPendingMessages, ...(event.execution === undefined ? {} : {execution: canonicalExecution(event.execution)}) };
     case "message_started":
     case "message_finished":
       return {
@@ -867,7 +873,7 @@ export function canonicalEvent(event: CollabEvent): CollabEvent {
     case "thinking_changed":
       return { kind: "thinking_changed", level: event.level };
     case "ui_wait":
-      return { kind: "ui_wait", waiting: event.waiting, title: event.title === null ? null : safePrefix(event.title, 512) };
+      return { kind: "ui_wait", waiting: event.waiting, title: event.title === null ? null : safePrefix(event.title, 512), ...(event.promptKind === undefined ? {} : {promptKind:event.promptKind}) };
     case "notice":
       return { kind: "notice", level: event.level, message: safePrefix(event.message, 16_384) };
     default:
@@ -1029,6 +1035,7 @@ function canonicalSnapshot(
     thinkingLevel: snapshot.thinkingLevel,
     phase: snapshot.phase,
     hasPendingMessages: snapshot.hasPendingMessages,
+    ...(snapshot.execution === undefined ? {} : {execution:canonicalExecution(snapshot.execution)}),
     messages: normalizedMessages,
     historyTruncated: normalizedHistoryTruncated,
     tools: normalizedTools,
@@ -1049,8 +1056,11 @@ export function applyEvent(snapshot: SessionSnapshot, envelope: EventEnvelope): 
   const next = canonicalSnapshot(snapshot, snapshot.messages, snapshot.tools, snapshot.historyTruncated === true, envelope.seq);
   const event = canonicalEvent(envelope.event);
   switch (event.kind) {
-    case "session_state":
-      return { ...next, phase: event.phase, hasPendingMessages: event.hasPendingMessages };
+    case "session_state": {
+      // Missing metadata is an older host, not permission to retain a newer stale result.
+      delete next.execution;
+      return { ...next, phase: event.phase, hasPendingMessages: event.hasPendingMessages, ...(event.execution === undefined ? {} : {execution:canonicalExecution(event.execution)}) };
+    }
     case "message_started":
     case "message_finished": {
       const bounded = boundedTranscriptMessage(event.message);
@@ -1126,8 +1136,10 @@ export function applyEvent(snapshot: SessionSnapshot, envelope: EventEnvelope): 
       return { ...next, model: canonicalModel(event.model) };
     case "thinking_changed":
       return { ...next, thinkingLevel: event.level };
-    case "ui_wait":
+    case "ui_wait": {
+      if (next.execution) next.execution = {version:1,runId:next.execution.runId,activity:event.waiting?'waiting':'working',outcome:'none',...(event.waiting && event.promptKind ? {waitKind:event.promptKind}: {})};
       return { ...next, phase: event.waiting ? "waiting_local_ui" : "running" };
+    }
     case "notice":
       return next;
   }

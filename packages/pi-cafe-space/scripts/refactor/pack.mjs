@@ -7,11 +7,11 @@ import { buildAdditionalPlatforms, parsePlatforms } from './matrix.mjs';
 const { values } = parseArgs({ options: { platforms: { type: 'string' } }, strict: true });
 const targets = parsePlatforms(values.platforms);
 const npm=process.env.npm_execpath;
-if(!npm)throw Error('Run this helper through npm run refactor:pack');
+if(!npm)throw Error('Run this helper through npm run pack');
 // Never use --ignore-scripts as a shortcut around the fresh source build.
-await buildCandidate();
+const primary=await buildCandidate();
 await buildAdditionalPlatforms(targets);
-const {target,metadata}=await stageRelease();
+const {target,metadata}=await stageRelease(false,[...new Set([primary.platform,...targets])]);
 run(process.execPath,[join(target,'scripts/verify-artifacts.mjs')]);
 // Each invocation owns a new directory; a failed pack cannot be mistaken for
 // a successful overwrite of a previous package or remove an unknown archive.

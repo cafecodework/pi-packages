@@ -67,9 +67,11 @@ func(s *remoteSession)roomAuthentication(raw []byte)error{
  var q struct{Type string `json:"type"`;ID string `json:"id"`;Nonce string `json:"nonce"`;Password string `json:"password"`;Nickname string `json:"nickname,omitempty"`;Visitor *visitorProof `json:"visitor,omitempty"`;Account string `json:"account,omitempty"`}
  if len(raw)>8192||strictJSON(raw,&q)!=nil||q.Account==""&&len(raw)>2048||q.Type!="room.auth"||q.ID!=s.identity.ID||q.Nonce!=s.browserNonce{return errors.New("room authentication required")}
  s.mu.Lock();if s.closed||s.roomAttempted{s.mu.Unlock();return errors.New("one password attempt per connection")};s.roomAttempted=true;s.mu.Unlock()
- if !s.agent.room.verify(q.Password,s.roomKey,s.roomRevision){
-  q.Password="";_ = s.sendJSON(map[string]any{"type":"room.denied","code":"ROOM_PASSWORD_REJECTED"})
-  time.AfterFunc(250*time.Millisecond,func(){s.Close(1008,"Room password rejected")});return nil
+ if result:=s.agent.room.verifyResult(q.Password,s.roomKey,s.roomRevision);result.Code!=""{
+  q.Password="";denied:=map[string]any{"type":"room.denied","code":result.Code}
+  if result.RetryAfterSeconds>0{denied["retryAfterSeconds"]=result.RetryAfterSeconds}
+  _ = s.sendJSON(denied)
+  time.AfterFunc(250*time.Millisecond,func(){s.Close(1008,"Room authentication not completed")});return nil
  }
  q.Password=""
  identity,verifyErr:=verifiedRoomVisitor(s.identity,s.roomKey,s.browserNonce,q.Nickname,q.Visitor);if verifyErr!=nil{return verifyErr}

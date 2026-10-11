@@ -38,6 +38,8 @@ func ApplyEvent(snapshot, envelope Object) (Object, error) {
 	case "session_state":
 		next["phase"] = e["phase"]
 		next["hasPendingMessages"] = e["hasPendingMessages"]
+		delete(next,"execution")
+		if state,ok:=e["execution"].(Object);ok{next["execution"]=CanonicalExecution(state)}
 	case "message_started", "message_finished":
 		m := canonicalMessage(e["message"].(Object))
 		truncated := m["partsTruncated"] == true
@@ -142,6 +144,12 @@ func ApplyEvent(snapshot, envelope Object) (Object, error) {
 	case "thinking_changed":
 		next["thinkingLevel"] = e["level"]
 	case "ui_wait":
+		if previous,ok:=next["execution"].(Object);ok{
+			activity:="working";if e["waiting"]==true{activity="waiting"}
+			state:=Object{"version":float64(1),"runId":previous["runId"],"activity":activity,"outcome":"none"}
+			if e["waiting"]==true{if kind,ok:=e["promptKind"];ok{state["waitKind"]=kind}}
+			next["execution"]=state
+		}
 		next["phase"] = "running"
 		if e["waiting"] == true {
 			next["phase"] = "waiting_local_ui"

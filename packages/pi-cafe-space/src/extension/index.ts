@@ -30,6 +30,8 @@ import { FileCommandError, listProjectDirectory, readProjectFile, attachProjectF
 import { ConnectionWarningReporter } from "./connection-warning.js";
 import { registerCafe } from "./cafe.js";
 import { thinkingCapability, applyThinkingLevel } from './thinking-capability.js';
+import { ExecutionTracker } from './execution-tracker.js';
+import { canonicalExecution, isPromptKind } from '../protocol/execution.js';
 import { ensureLocalRelay } from "./local-relay.js";
 import { localCredentialFile, readLocalHostToken } from "./local-relay.js";
 
@@ -738,10 +740,11 @@ export function compactSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
     sessionName: snapshot.sessionName,
     cwd: snapshot.cwd,
     activeLeafId: snapshot.activeLeafId,
-    model: snapshot.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null,
+    model: snapshot.model ? { provider: snapshot.model.provider, id: snapshot.model.id, ...(snapshot.model.reasoning===undefined?{}:{reasoning:snapshot.model.reasoning}), ...(snapshot.model.thinkingLevels===undefined?{}:{thinkingLevels:[...snapshot.model.thinkingLevels]}) } : null,
     thinkingLevel: snapshot.thinkingLevel,
     phase: snapshot.phase,
     hasPendingMessages: snapshot.hasPendingMessages,
+    ...(snapshot.execution===undefined?{}:{execution:canonicalExecution(snapshot.execution)}),
     ...(snapshot.sessionControl === undefined ? {} : { sessionControl: snapshot.sessionControl }),
     ...(snapshot.inputAssist === undefined ? {} : { inputAssist: snapshot.inputAssist }),
     messages,
@@ -871,6 +874,9 @@ class PiCollabHost {
     () => this.notify("info", "Café Space: connection is stable again."),
   );
   private commandTail: Promise<void> = Promise.resolve();
+  private readonly execution = new ExecutionTracker(randomUUID);
+  private nativeIdleTimer: NodeJS.Timeout | null = null;
+  private clearNativeIdleTimer(): void { if(this.nativeIdleTimer)clearTimeout(this.nativeIdleTimer);this.nativeIdleTimer=null; }
   private currentContext: ExtensionContext;
   private snapshot: SessionSnapshot;
   private sequence = 0;
@@ -891,6 +897,8 @@ class PiCollabHost {
   constructor(private readonly pi: ExtensionAPI, ctx: ExtensionContext, private readonly config: HostConfig) {
     this.currentContext = ctx;
     this.snapshot = historicalSnapshot(pi, ctx, randomUUID(), 0);
+    this.execution.reset(this.snapshot.phase==='idle');
+    this.snapshot.execution=this.execution.snapshot();
     this.projectionTruncated = this.snapshot.historyTruncated;
   }
 
@@ -923,6 +931,7 @@ class PiCollabHost {
       this.finishSessionCommand(accepted ? 'dispatched' : 'rejected', accepted ? null : 'HOST_REPLACED', accepted ? 'Pi accepted the session switch; waiting for its new snapshot' : 'Pi lifecycle interrupted the command');
     }
     this.stopped = true;
+    this.clearNativeIdleTimer();
     this.welcomed = false;
     this.snapshotReady = false;
     // Stopping is an explicit new lifecycle. A normal close/error path must
@@ -1193,6 +1202,7 @@ class PiCollabHost {
   recoverFromCallbackFailure(): void {
     if (this.stopped) return;
     this.activeAssistantId = null;
+    try { this.execution.uncertain(this.currentContext.isIdle()); } catch { this.execution.reset(); }
     this.markProjectionTruncated();
     this.refreshSnapshot();
   }
@@ -1781,6 +1791,7 @@ class PiCollabHost {
       const nextStreamId = rotateStream ? randomUUID() : previous.streamId;
       const nextSequence = rotateStream ? 0 : this.sequence;
       const refreshed = historicalSnapshot(this.pi, this.currentContext, nextStreamId, nextSequence);
+      refreshed.execution=this.execution.snapshot();
       if (!rotateStream && previousTruncated) refreshed.historyTruncated = true;
       if (preserveLiveProjection && !rotateStream && refreshed.sessionId === previous.sessionId) {
         // A session rename changes metadata only. Keep an in-flight assistant
@@ -1849,7 +1860,7 @@ class PiCollabHost {
         return;
       }
       if (projection.partsTruncated || messageProjectionWasTruncated(message)) this.markProjectionTruncated();
-      if (role === "assistant") this.activeAssistantId = id;
+      if (role === "assistant") { this.activeAssistantId = id; this.execution.assistantStarted(); }
       this.emit({ kind: "message_started", message: role === "assistant" ? { ...projection, text: "", thinking: "", parts: [] } : projection });
     } catch {
       this.recoverFromCallbackFailure();
@@ -1929,6 +1940,7 @@ class PiCollabHost {
       const knownStopReason = stopReason === undefined || stopReason === "pending" || stopReason === "stop" ||
         stopReason === "length" || stopReason === "toolUse" || stopReason === "error" || stopReason === "aborted" || stopReason === "deferred";
       if (!knownStopReason) this.markProjectionTruncated();
+      if (assistant) this.execution.assistantEnded(stopReason);
       const error = stopReason === "error" || stopReason === "aborted";
       const projection = messageProjection(message, id, error ? "error" : "complete");
       if (projection) {
@@ -2045,13 +2057,58 @@ class PiCollabHost {
         this.recoverFromCallbackFailure();
         return;
       }
-      this.emit({ kind: "session_state", phase, hasPendingMessages });
+      this.clearNativeIdleTimer();
+      if (phase==='running') this.execution.begin();
+      else this.execution.uncertain(phase==='idle');
+      this.emit({ kind: "session_state", phase, hasPendingMessages, execution:this.execution.snapshot() });
     } catch {
       this.recoverFromCallbackFailure();
     }
   }
 
-  onUiWait(waiting: boolean, title: string | null, ctx: ExtensionContext): void {
+  private publishExecution(phase: SessionSnapshot['phase']): void {
+    const hasPendingMessages=this.currentContext.hasPendingMessages();
+    if (typeof hasPendingMessages!=='boolean') throw Error('Invalid native queue state');
+    this.emit({kind:'session_state',phase,hasPendingMessages,execution:this.execution.snapshot()});
+  }
+
+  onBeforeSettle(outcome: unknown, ctx: ExtensionContext): void {
+    if (this.adoptContext(ctx)) this.execution.beforeSettle(outcome);
+  }
+
+  onSettled(aborted: unknown, ctx: ExtensionContext): void {
+    if (!this.adoptContext(ctx)) return;
+    this.clearNativeIdleTimer();
+    this.execution.settled(aborted);
+    this.publishExecution('idle');
+  }
+
+  onCompactionStart(reason: unknown, ctx: ExtensionContext): void {
+    if (!this.adoptContext(ctx)) return;
+    this.execution.compactionStart(reason);
+    this.publishExecution('running');
+  }
+
+  onCompactionEnd(ctx: ExtensionContext, reason?: unknown): void {
+    if (!this.adoptContext(ctx)) return;
+    this.execution.compactionEnd(ctx.isIdle());
+    this.onSessionChanged(ctx,true,true);
+    this.publishExecution(ctx.isIdle()?'idle':'running');
+    // Native successful manual compaction clears its busy flag AFTER emitting
+    // session_compact. Observe the post-callback context; never force it idle.
+    if(reason==='manual'&&!ctx.isIdle()){
+      this.clearNativeIdleTimer();const streamId=this.snapshot.streamId,runId=this.execution.snapshot().runId;
+      const reconcile=(remaining:number)=>{
+        this.nativeIdleTimer=null;
+        if(this.stopped||this.snapshot.streamId!==streamId||this.execution.snapshot().runId!==runId)return;
+        try{if(ctx.isIdle()){this.execution.compactionEnd(true);this.publishExecution('idle');return;}}catch{return;}
+        if(remaining>0){this.nativeIdleTimer=setTimeout(()=>reconcile(remaining-1),100);this.nativeIdleTimer.unref();}
+      };
+      this.nativeIdleTimer=setTimeout(()=>reconcile(19),0);this.nativeIdleTimer.unref();
+    }
+  }
+
+  onUiWait(waiting: boolean, title: string | null, ctx: ExtensionContext, promptKind?: unknown): void {
     try {
       if (!this.adoptContext(ctx)) return;
       if (typeof waiting !== "boolean" || (title !== null && typeof title !== "string")) {
@@ -2059,10 +2116,12 @@ class PiCollabHost {
         return;
       }
       const safeTitle = title ? truncate(title, 512) : null;
-      this.emit({ kind: "ui_wait", waiting, title: safeTitle });
+      this.clearNativeIdleTimer();
+      this.execution.wait(waiting,promptKind,ctx.isIdle());
+      this.emit({ kind: "ui_wait", waiting, title: safeTitle, ...(isPromptKind(promptKind)?{promptKind}:{}) });
       // A command-level dialog can close without any agent turn/settled event.
       // Restore native authority instead of leaving an idle Pi shown as running.
-      if (!waiting) this.onAgentState(ctx.isIdle() ? 'idle' : 'running', ctx);
+      if (!waiting) this.publishExecution(this.execution.snapshot().activity==='waiting'?'waiting_local_ui':ctx.isIdle()?'idle':'running');
     } catch {
       this.recoverFromCallbackFailure();
     }
@@ -2096,7 +2155,7 @@ class PiCollabHost {
     }
   }
 
-  onSessionChanged(ctx: ExtensionContext, resetProjection = true): void {
+  onSessionChanged(ctx: ExtensionContext, resetProjection = true, preserveExecution = false): void {
     try {
       if (!this.adoptContext(ctx)) return;
       const previousSessionId = this.snapshot.sessionId;
@@ -2109,6 +2168,7 @@ class PiCollabHost {
       }
       const sessionChanged = nextSessionId !== previousSessionId;
       const cwdChanged = nextCwd !== previousCwd;
+      if (sessionChanged || cwdChanged || resetProjection && !preserveExecution) { this.clearNativeIdleTimer(); this.execution.reset(ctx.isIdle()); }
       // Rebuild projection state for branch/compaction changes, session changes,
       // or project-root changes. A simple session rename must not erase a
       // currently streaming assistant/tool, but a new project must not retain
@@ -2270,13 +2330,15 @@ export default function registerPiCollabExtension(pi: ExtensionAPI): void {
   pi.on("tool_execution_update", (event, ctx) => invokeHost((current) => current.onToolUpdate(event.toolCallId, event.partialResult, ctx)));
   pi.on("tool_execution_end", (event, ctx) => invokeHost((current) => current.onToolEnd(event.toolCallId, event.toolName, event.result, event.isError, ctx)));
   pi.on("agent_start", (_event, ctx) => invokeHost((current) => current.onAgentState("running", ctx)));
-  pi.on("agent_settled", (_event, ctx) => invokeHost((current) => current.onAgentState("idle", ctx)));
-  pi.on("ui_prompt_start", (event, ctx) => invokeHost((current) => current.onUiWait(true, event.title ?? null, ctx)));
-  pi.on("ui_prompt_end", (event, ctx) => invokeHost((current) => current.onUiWait(false, event.title ?? null, ctx)));
+  pi.on("agent_before_settle", (event, ctx) => invokeHost((current) => current.onBeforeSettle(event.outcome, ctx)));
+  pi.on("agent_settled", (event, ctx) => invokeHost((current) => current.onSettled(event.aborted, ctx)));
+  pi.on("ui_prompt_start", (event, ctx) => invokeHost((current) => current.onUiWait(true, event.title ?? null, ctx, event.kind)));
+  pi.on("ui_prompt_end", (event, ctx) => invokeHost((current) => current.onUiWait(false, event.title ?? null, ctx, event.kind)));
   pi.on("model_select", (event, ctx) => invokeHost((current) => current.onModelChanged(event.model, ctx)));
   pi.on("thinking_level_select", (event, ctx) => invokeHost((current) => current.onThinkingChanged(event.level, ctx)));
   pi.on("session_tree", (_event, ctx) => invokeHost((current) => current.onSessionChanged(ctx, true)));
-  pi.on("session_compact", (_event, ctx) => invokeHost((current) => current.onSessionChanged(ctx, true)));
-  pi.on("session_compact_failed", (_event, ctx) => invokeHost((current) => current.onSessionChanged(ctx, true)));
+  pi.on("session_before_compact", (event, ctx) => invokeHost((current) => current.onCompactionStart(event.reason, ctx)));
+  pi.on("session_compact", (event, ctx) => invokeHost((current) => current.onCompactionEnd(ctx,event.reason)));
+  pi.on("session_compact_failed", (event, ctx) => invokeHost((current) => current.onCompactionEnd(ctx,event.reason)));
   pi.on("session_info_changed", (_event, ctx) => invokeHost((current) => current.onSessionChanged(ctx, false)));
 }

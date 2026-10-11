@@ -26,6 +26,8 @@ import (
 )
 
 const roomPasswordIterations = 600000
+// Resource protection, not a failed-password lockout shared by every visitor.
+const roomPasswordAttemptLimit = 120
 var roomEncoding = base64.RawURLEncoding.Strict()
 
 type roomRecord struct {
@@ -42,7 +44,7 @@ type roomOwner struct {
  key *ecdsa.PrivateKey
  keyID string
  fileHash string
- failures int
+ attempts int
  window time.Time
  verifying bool
 }
@@ -108,20 +110,32 @@ func loadRoomOwner(path,password string)(*roomOwner,error){
 }
 func(o *roomOwner)snapshot()(string,uint64){o.mu.Lock();defer o.mu.Unlock();return o.keyID,o.record.Revision}
 func(o *roomOwner)sign(expectedKey string,parts ...string)(string,error){o.mu.Lock();defer o.mu.Unlock();if o.keyID!=expectedKey{return "",errors.New("room key rotated")};return roomSign(o.key,parts...)}
-// One expensive verification at a time, with a room-wide rolling attempt cap.
-// A client cannot defeat it by reconnecting or changing a claimed source address.
-func(o *roomOwner)verify(password,key string,revision uint64)bool{
- o.mu.Lock();now:=time.Now();if now.Sub(o.window)>time.Minute{o.window=now;o.failures=0}
- if o.keyID!=key||o.record.Revision!=revision||o.failures>=12||o.verifying||!RoomPasswordValid(password){o.mu.Unlock();return false}
- o.failures++;o.verifying=true;record:=o.record;o.mu.Unlock()
+type roomPasswordResult struct { Code string; RetryAfterSeconds int }
+
+// A busy verifier or an exhausted computation budget is not a wrong password.
+// One PBKDF at a time bounds CPU, and the generous room-wide budget survives
+// reconnects without treating successful joins as failed-password lockouts.
+func(o *roomOwner)verifyResult(password,key string,revision uint64)roomPasswordResult{
+ o.mu.Lock();now:=time.Now();if now.Sub(o.window)>=time.Minute{o.window=now;o.attempts=0}
+ if o.keyID!=key||o.record.Revision!=revision{o.mu.Unlock();return roomPasswordResult{Code:"ROOM_ACCESS_CHANGED"}}
+ if !RoomPasswordValid(password){o.mu.Unlock();return roomPasswordResult{Code:"ROOM_PASSWORD_REJECTED"}}
+ if o.attempts>=roomPasswordAttemptLimit{
+  retry:=int(time.Until(o.window.Add(time.Minute)).Seconds())+1;if retry<1{retry=1};if retry>60{retry=60}
+  o.mu.Unlock();return roomPasswordResult{Code:"ROOM_AUTH_RATE_LIMITED",RetryAfterSeconds:retry}
+ }
+ if o.verifying{o.mu.Unlock();return roomPasswordResult{Code:"ROOM_AUTH_BUSY",RetryAfterSeconds:1}}
+ o.attempts++;o.verifying=true;record:=o.record;o.mu.Unlock()
  salt,_:=roomEncoding.DecodeString(record.Salt);expected,_:=roomEncoding.DecodeString(record.Verifier);actual:=pbkdf2.Key([]byte(password),salt,roomPasswordIterations,32,sha256.New)
  valid:=subtle.ConstantTimeCompare(actual,expected)==1
- o.mu.Lock();defer o.mu.Unlock();o.verifying=false;valid=valid&&o.keyID==key&&o.record.Revision==revision
- return valid
+ o.mu.Lock();defer o.mu.Unlock();o.verifying=false
+ if o.keyID!=key||o.record.Revision!=revision{return roomPasswordResult{Code:"ROOM_ACCESS_CHANGED"}}
+ if !valid{return roomPasswordResult{Code:"ROOM_PASSWORD_REJECTED"}}
+ return roomPasswordResult{}
 }
+func(o *roomOwner)verify(password,key string,revision uint64)bool{return o.verifyResult(password,key,revision).Code==""}
 func(o *roomOwner)change(password string,rotate bool,expectedRevision uint64)error{
  o.mu.Lock();defer o.mu.Unlock();if expectedRevision!=o.record.Revision{return errors.New("room revision changed")}
  next:=o.record;key:=o.key
  if rotate{var err error;key,err=ecdsa.GenerateKey(elliptic.P256(),rand.Reader);if err!=nil{return err};der,err:=x509.MarshalECPrivateKey(key);if err!=nil{return err};next.PrivateKey=base64.RawURLEncoding.EncodeToString(der)}else{salt,verifier,err:=passwordRecord(password);if err!=nil{return err};next.Salt=salt;next.Verifier=verifier}
- next.Revision++;hash,err:=writeRoomRecord(o.path,next,o.fileHash);if err!=nil{return err};o.record=next;o.key=key;o.keyID=roomKeyID(key);o.fileHash=hash;o.failures=0;o.window=time.Now();return nil
+ next.Revision++;hash,err:=writeRoomRecord(o.path,next,o.fileHash);if err!=nil{return err};o.record=next;o.key=key;o.keyID=roomKeyID(key);o.fileHash=hash;o.attempts=0;o.window=time.Now();return nil
 }

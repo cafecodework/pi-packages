@@ -1,6 +1,28 @@
 # 换机器继续开发
 
-## 当前实现与边界
+## 2026-10-11 必要修复与状态层收尾（源码／候选，尚未切换运行服务）
+
+用户复审后要求只做必要修复，不增加权限体系或大重构。本轮在原Pi1.1.0未提交工作上实现：
+
+- 文件共享补齐`.secrets`、`data/identity`、`.config/pi-cafe-space`与明确配置的运行凭据／SQLite旁路文件保护；读取、列表、@附件共用检查。普通项目源码、示例keys.json及普通数据库继续可读，不新增逐文件审批。这不是OS沙箱，也不宣称能识别任意文件里的所有秘密。
+- 房间验密区分错误密码、验证忙碌、资源限流、房间已变化；网页对应显示。仍是原PBKDF与每连接一次验密，单次计算并发有界。原12次共享锁定改为120次/分钟计算额度，成功不是密码失败，忙碌不消耗计算额度。旧无code的room.denied仍兼容。
+- 身份服务限流改为可信代理来源、已存在服务端会话、不同接口用途的独立额度，保留宽松全局资源上限；伪造转发头或Cookie不能任意换桶，限流带Retry-After。没有Redis、新服务、SSO期限调整或额外确认。
+- 聊天活动只用Pi扩展有序快照，不与托管RPC独立runId合并。托管列表仍显示自己的RPC观察。取消/失败/未知、原生提示种类和压缩状态保留，不统一重写运行状态层。
+- 默认build/start/relay与npm run pack已指向现有Go/React发行链，旧TS仅以legacy命令显式使用。npm run pack的prepack前置钩子允许继续；直接npm pack在源码目录会提示正确入口，避免归档布局错误。
+
+已核对：585项主包通过、1项原有跳过；277项网页与类型检查通过；Go remote/protocol/managed/service完整race和vet通过（103.781/3.175/4.956/3.901秒）。真实Pi1.1.0 SDK的完成、失败、自动重试、取消、结算前续轮5场景通过，报告`.refactor/reports/native-execution-practical-20261011/result.json`，外部模型/工具调用均0。主站身份16项协议/存储/限流/真实临时HTTP测试在固定Node LTS Docker构建中全部通过。本机Node24.0.2测试会有原有LTS/SQLite提示，不把它当作生产运行时覆盖；Docker构建补齐该覆盖。
+
+主站七个源码文件已核对摘要后写回`/opt/stacks/edel-garden/services/identity`，候选镜像`edel-garden-identity:0.1.0-practical-20261011`，ID`sha256:1c242b5de3a976838b5ca3260826155639fa3b7736637fe02c02cbda9e0715cf`。源码原基线022ead2在操作间变为7cdcd07；确认新提交未改身份目录且七文件基线未变后再应用，未覆盖主站其他工作。清单、旧源码、镜像测试与写回回执在服务器`data/practical-fixes-20261011`，本机编辑副本在`.refactor/identity-practical-20261011`，没有复制运行密钥或真实会话数据库。
+
+实际`npm run build`与`npm run pack -- --platforms linux-amd64,windows-amd64`均通过，默认启动器也已在随机本机端口验证Go/React资源并清理自有进程。47文件归档`.refactor/release/pack-iVHYXH/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`ba5b0d5a5f933f5a6786c24b26bbb229ed64db3635c4205dc204f945e40ebf57`；Web摘要`a3b61574f80038aa0bde5d0c8b9f3a1f40f38db4b5dbba7596a45ef5a4ecfa51`，JS`index-BJ3inzfA.js`、CSS`index-DV6MoyIo.css`。Linux/Windows仅交叉编译，既有大JS分块提示保留，没有为了小修复再拆包。
+
+最终真实浏览器21组全部通过，原操作退出0，报告`.refactor/reports/practical-fixes-browser-final-20261011/result.json`。包含本轮状态层、密码拒绝、原昵称刷新/房主审批、自定义模型选择、手机布局、旧链接离线、新链接接入，以及办公网关重启后身份/密码保持。4次合成prompt、外部模型请求0；实际Go/Chrome/WebRTC，非物理iPhone或公网蜂窝验收。之前Pi1.1.0因旧链接测试流程停住的尾部场景已补齐，不再是待完成项。
+
+保留的检查边界：首轮默认构建因工具子进程PATH缺Node而未编译，随后只在测试shell使用既有Node/Go路径通过。网页旧room.denied兼容断言首次失败后恢复无code兼容，没有删除测试。首轮本次浏览器因旧正则“Incorrect password”不匹配新文案“Incorrect room password”超时，保留`.refactor/reports/practical-fixes-browser-20261011/result.json`；修正两处定位后同一应用包21组通过。一次有界等待调用被工具拒绝，没有调整权限或重跑任务，最终读原操作输出确认通过。
+
+最后只读核对主站七文件与测试清单一致，身份容器仍为cafe-sso-20261004且healthy；Space cloud为其他会话已部署的`sha256:b5744d4c6f04fe73bd1e9585a166b49fcdff04c5d236679bebbe178a3f20c270`，不是本轮候选。运行中的Pi、网关、cloud、身份容器、Caddy/TURN均未因本轮修改而重启；本轮未提交推送或部署。源码交接最终结果在仓库，包内随构建封装的文档可能仍写浏览器验收待核对，应以本段与实际报告为准。
+
+## 原实现与边界
 
 - 开发包：`packages/pi-cafe-space`。当前远程版入口见 [REMOTE_ACCESS](REMOTE_ACCESS.md) 和 [本轮验收](refactor/REMOTE_ACCEPTANCE.md)；[PROGRESS §57](refactor/PROGRESS.md) 保留此前本地版本的历史记录。
 - 当前方向是 **Go Relay + React / assistant-ui Web**，不是旧 `web/public` 客户端。Café 风格、严格 CSP、房间 Hash URL、原生消息/工具、`/` 命令、`@` 文件引用、左侧统一会话管理已经接入。
@@ -28,12 +50,13 @@ go test ./...
 cd ..
 
 # 正确的 Go + React 候选构建/打包入口
-npm run refactor:pack
+npm run build
+npm run pack
 ```
 
-`refactor:pack` 会构建 React、生成嵌入资源、运行 webembed Go 测试、构建当前平台 Relay、编译扩展并检查精确发行文件清单。结果在 `.refactor/release/package/` 和新生成的 `.refactor/release/pack-*/`；本机试用不自动部署。
+`build` 生成React、嵌入资源、运行webembed Go测试、构建当前平台Relay并编译扩展，安装布局在`.refactor/release/package/`。`npm run pack`在同一链路上再校验精确发行文件与归档，生成`.refactor/release/pack-*/`；只打本机及`-- --platforms linux-amd64,windows-amd64`明确选择的平台，不受未选平台旧缓存影响。旧`refactor:pack`与`remote:pack`仍为兼容别名，不是另一条构建链。
 
-不要用旧的 `npm run build`/根 `pi-cafe-space:build` 代替：它们仍保留 TS Relay/旧静态 Web 的生产入口。不要单独用 `vite build` 绕开发行构建：候选依赖构建脚本注入的 HashRouter-only 检查。生成文件不提交，修改源文件后重新构建。
+`npm start`／`npm run relay`启动已构建的Go包；旧TS参考入口是`legacy:build`／`legacy:relay`。源码checkout不是发行布局，直接`npm pack`会提示用`npm run pack`，不静默打旧dist。不要单独用`vite build`代替发行构建，所需HashRouter-only检查仍由统一构建注入。生成文件不提交，本机构建不自动部署。
 
 Windows 的额外确定性检查（先完成 pack）：
 

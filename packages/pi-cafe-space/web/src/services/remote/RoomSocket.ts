@@ -198,7 +198,10 @@ export class RoomSocket implements SocketLike {
     const raw = decoder.decode(bytes), value: unknown = JSON.parse(raw);
     if (!object(value) || typeof value.type !== 'string') throw Error('INVALID_ROOM_DATA');
     if (!this.#verified) {
-      if (value.type === 'room.denied') { this.#fail(value.code==='ROOM_ACCOUNT_IDENTITY_FAILED'?'ROOM_ACCOUNT_IDENTITY_FAILED':'ROOM_PASSWORD_REJECTED'); return; }
+      if (value.type === 'room.denied') {
+        const allowed = ['ROOM_PASSWORD_REJECTED','ROOM_ACCOUNT_IDENTITY_FAILED','ROOM_AUTH_BUSY','ROOM_AUTH_RATE_LIMITED','ROOM_ACCESS_CHANGED'];
+        this.#fail(value.code === undefined ? 'ROOM_PASSWORD_REJECTED' : typeof value.code === 'string' && allowed.includes(value.code) ? value.code : 'ROOM_PROTOCOL_ERROR'); return;
+      }
       if (value.type !== 'room.authenticated' || value.id !== this.#id || value.roomKey !== this.#options.roomKey || value.deviceId !== 'room' || value.roomId !== 'main' || value.userId !== (this.#accountProof?.userId ?? this.#proof?.userId ?? 'guest-' + this.#id) || value.role !== 'operator' || typeof value.name !== 'string' || !value.name || value.name.length > 128 || typeof value.managed !== 'boolean') throw Error('INVALID_ROOM_IDENTITY');
       if(this.#proof && value.visitorName !== (this.#accountProof?.identity.displayName??this.#proof.displayName)) throw Error('INVALID_ROOM_IDENTITY');
       if(this.#options.account&&(!this.#accountProof||value.identityKind!=='account'||value.accountId!==this.#accountProof.identity.accountId))throw Error('INVALID_ROOM_IDENTITY');

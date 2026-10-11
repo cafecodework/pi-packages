@@ -9,7 +9,7 @@ const remoteScripts = ['setup.mjs', 'run.mjs', 'room-setup.mjs', 'room-run.mjs',
 export function releaseFiles(tags) {
  if (!tags.length || tags.some(tag=>!platforms.includes(tag))) throw Error('Invalid release platforms');
  return ['package.json','README.md','INSTALL.md','AI_INSTALL.md','LICENSE','THIRD-PARTY-NOTICES.txt','dist/relay/build.json',
-  ...['index','connection-warning','file-commands','private-json','local-relay','local-relay-go','cafe','cafe-actions','cafe-client','cafe-render','cafe-approvals','cafe-owner-client','thinking-capability'].map(name=>`dist/extension/${name}.js`),'dist/protocol/index.js',
+  ...['index','connection-warning','file-commands','private-json','local-relay','local-relay-go','cafe','cafe-actions','cafe-client','cafe-render','cafe-approvals','cafe-owner-client','thinking-capability','execution-tracker'].map(name=>`dist/extension/${name}.js`),'dist/protocol/index.js','dist/protocol/execution.js',
   ...tags.map(tag=>`dist/relay/bin/${tag}/pi-cafe-relay${tag.startsWith('windows')?'.exe':''}`),
   ...runtimeScripts.map(name=>`scripts/${name}`),...remoteScripts.map(name=>`scripts/remote/${name}`),...['build.mjs','assets.mjs','hash-router-only.mjs'].map(name=>`scripts/build-tools/${name}`),'scripts/build-tools/licenses/metadata-only.json'].sort();
 }
@@ -25,7 +25,8 @@ async function inventory(directory,allowed,prefix='') {
  }
  return files;
 }
-export async function stageRelease(requireAll = false) {
+export async function stageRelease(requireAll = false, selectedTags) {
+ if (selectedTags && (!selectedTags.length || selectedTags.some(tag => !platforms.includes(tag)) || new Set(selectedTags).size !== selectedTags.length)) throw Error('Invalid release platform selection');
  const base = join(root, '.refactor'); const build = JSON.parse(await readFile(join(base, 'build.json'), 'utf8'));
  if (await treeDigest(join(base, 'ts')) !== build.tsDigest) throw Error('TypeScript staging is stale; rebuild');
  if (!/^[a-f0-9]{64}$/.test(build.goDigest ?? '') || await treeDigest(join(root, 'relay')) !== build.goDigest) throw Error('Go staging is stale; rebuild');
@@ -34,6 +35,7 @@ export async function stageRelease(requireAll = false) {
  if (build.version !== manifest.version) throw Error('Build version is stale');
  const records = {}; const missing = [];
  for (const platform of platforms) {
+  if (selectedTags && !selectedTags.includes(platform)) { missing.push(platform); continue; }
   let record; try { record = JSON.parse(await readFile(join(base, 'bin', platform, 'build.json'), 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; missing.push(platform); continue; }
   const filename = platform.startsWith('windows') ? 'pi-cafe-relay.exe' : 'pi-cafe-relay'; const path = join(base, 'bin', platform, filename);
   await ordinaryDirectory(join(base, 'bin', platform)); const stat = await lstat(path); if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024 * 1024) throw Error('Invalid matrix binary');

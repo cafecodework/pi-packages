@@ -27,8 +27,12 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('web/public','dist/relay/public',{recursive:true})\"",
-    "prepack": "npm run build",
+    "build": "node scripts/build.mjs",
+    "pack": "node scripts/refactor/pack.mjs",
+    "prepack": "node scripts/prepack.mjs",
+    "start": "node scripts/run-built.mjs",
+    "legacy:build": "npm run clean && tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('web/public','dist/relay/public',{recursive:true})\"",
+    "legacy:relay": "node dist/relay/index.js",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts",
     "refactor:contracts:test": "vitest run src/protocol/fixtures.test.ts",
@@ -53,7 +57,7 @@
     "refactor:build:test": "node --test --test-concurrency=1 scripts/refactor/candidate.test.mjs scripts/refactor/source-build.test.mjs",
     "refactor:launcher:test": "node --test scripts/refactor/launcher.test.mjs",
     "refactor:integration:test": "node scripts/refactor/integration.mjs",
-    "relay": "node dist/relay/index.js",
+    "relay": "node scripts/run-built.mjs",
     "relay:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-relay.ps1",
     "relay:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-relay.ps1",
     "pi:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-pi.ps1"

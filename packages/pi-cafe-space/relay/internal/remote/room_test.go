@@ -41,10 +41,16 @@ func TestRoomSignedTranscriptCannotBeReplayedOrSubstituted(t *testing.T){
 }
 func TestRoomGuessBudgetPersistsAcrossConnections(t *testing.T){
  owner,err:=loadRoomOwner(filepath.Join(t.TempDir(),"private","room.json"),"123456");if err!=nil{t.Fatal(err)};key,revision:=owner.snapshot()
- for i:=0;i<12;i++{if owner.verify("wrong1",key,revision){t.Fatal("wrong password accepted")}}
- if owner.verify("123456",key,revision){t.Fatal("rate limit did not apply to another connection")}
+ for i:=0;i<13;i++{if result:=owner.verifyResult("123456",key,revision);result.Code!=""{t.Fatal("normal joins hit old twelve-attempt lockout",result)}}
+ if result:=owner.verifyResult("wrong1",key,revision);result.Code!="ROOM_PASSWORD_REJECTED"{t.Fatal(result)}
+ owner.mu.Lock();owner.attempts=roomPasswordAttemptLimit;owner.window=time.Now();owner.mu.Unlock()
+ result:=owner.verifyResult("123456",key,revision);if result.Code!="ROOM_AUTH_RATE_LIMITED"||result.RetryAfterSeconds<1||result.RetryAfterSeconds>60{t.Fatal("capacity was reported as a wrong password",result)}
  owner.mu.Lock();owner.window=time.Now().Add(-time.Minute-time.Second);owner.mu.Unlock()
- if !owner.verify("123456",key,revision){t.Fatal("rate limit failed to recover")}
+ if !owner.verify("123456",key,revision){t.Fatal("resource budget failed to recover")}
+ owner.mu.Lock();owner.verifying=true;attempts:=owner.attempts;owner.mu.Unlock()
+ if result:=owner.verifyResult("123456",key,revision);result.Code!="ROOM_AUTH_BUSY"||result.RetryAfterSeconds!=1{t.Fatal(result)}
+ owner.mu.Lock();owner.verifying=false;if owner.attempts!=attempts{t.Fatal("busy request consumed computation quota")};owner.mu.Unlock()
+ if result:=owner.verifyResult("123456",key,revision+1);result.Code!="ROOM_ACCESS_CHANGED"{t.Fatal(result)}
 }
 func roomFixture(t *testing.T,turnOnly bool,managers ...ManagerPort)*integration{
  t.Helper();f:=&integration{host:map[string]*testHost{},connections:map[string]*hub.Connection{}}

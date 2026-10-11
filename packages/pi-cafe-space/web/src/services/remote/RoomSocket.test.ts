@@ -90,6 +90,12 @@ it('actual room.denied still reports an authentication rejection',async()=>{
  for(const packet of encodeChunks(1,new TextEncoder().encode(JSON.stringify({type:'room.denied'}))))f.pc.dc.onmessage?.({data:packet});
  expect(f.ended).toHaveBeenCalledWith('ROOM_PASSWORD_REJECTED');expect(JSON.parse(f.messages.mock.calls.at(-1)![0].data).code).toBe('UNAUTHORIZED');
 });
+it.each(['ROOM_PASSWORD_REJECTED','ROOM_AUTH_BUSY','ROOM_AUTH_RATE_LIMITED','ROOM_ACCESS_CHANGED','ROOM_ACCOUNT_IDENTITY_FAILED','UNRECOGNIZED'])('keeps an explicit room denial distinct: %s',async code=>{
+ const f=await fixture();f.ws.receive(f.answer);await vi.waitFor(()=>expect(f.pc.remoteCalls).toBe(1));f.ws.receive({type:'selected',id:f.id,mode:'webrtc'});
+ for(const packet of encodeChunks(1,new TextEncoder().encode(JSON.stringify({type:'room.denied',code,retryAfterSeconds:1}))))f.pc.dc.onmessage?.({data:packet});
+ expect(f.ended).toHaveBeenCalledExactlyOnceWith(code==='UNRECOGNIZED'?'ROOM_PROTOCOL_ERROR':code);
+ if(code!=='ROOM_PASSWORD_REJECTED')expect(f.messages).not.toHaveBeenCalled();
+});
 it('offline room ends in a clear error without submitting a password',async()=>{
  const f=await fixture();f.ws.onclose?.({code:4004});expect(f.ended).toHaveBeenCalledWith('ROOM_OFFLINE');expect(f.pc.dc.sent).toHaveLength(0);
 });

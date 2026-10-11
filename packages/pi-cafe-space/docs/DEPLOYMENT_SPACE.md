@@ -4,7 +4,17 @@
 
 使用既有服务器 `152.53.90.186`，SSH端口 `2012`、账户 `root`；域名为 `space.cafecode.work`，用户已在Cloudflare设置，服务器已有Caddy。要求用Docker部署云端Café Space，复用既有Caddy而不是覆盖其他站点。手机、笔记本希望同网、异地和蜂窝均可访问。密码不保存在此文档、源码或部署文件中。
 
-## 当前运行版本：Café统一账号登录已上线
+## 2026-10-11 必要修复候选：已构建，未切换服务
+
+本轮按复审结论只修敏感路径遗漏、身份限流对象、验密错误分类与默认构建入口，并将聊天状态限制为Pi扩展有序来源；不加权限系统、改变SSO期限或重构基础设施。完整实现和测试记录见[DEVELOPMENT_HANDOFF.md](DEVELOPMENT_HANDOFF.md)顶部。
+
+Space默认`npm run build`与`npm run pack -- --platforms linux-amd64,windows-amd64`已实际执行通过。最终47文件包`.refactor/release/pack-iVHYXH/cafecodework-pi-cafe-space-0.1.0.tgz`，SHA`ba5b0d5a5f933f5a6786c24b26bbb229ed64db3635c4205dc204f945e40ebf57`；JS`index-BJ3inzfA.js`、CSS`index-DV6MoyIo.css`。Mac程序`1a11668d2492e59339283cc7c492e5a8f6dd2cf7a820b3d67f28f9e02dcedc57`，Linux程序`83d86c0543dc2b5c830252771070d20a78a6f57242c28188c6a3d4000835a48b`，Windows程序`58f083228b881f77c3cc70611e69bb3da872e1708594007bbc8c3e907dbeec59`；Linux/Windows仅交叉编译。默认前台启动器也已用临时端口实际验证，测试结束已清理，没有启动到日常端口。
+
+主站身份修复七文件已写回原项目，候选镜像`edel-garden-identity:0.1.0-practical-20261011`已在固定Node LTS Docker内通过16项测试。源文件和镜像构建回执在`/opt/stacks/edel-garden/data/practical-fixes-20261011`。操作期间主站HEAD由022ead2变为7cdcd07，经核对身份目录完全未变后保留新HEAD，只同步七个已测文件。
+
+**源码与镜像准备不等于上线。** 最后只读核对身份容器仍运行`edel-garden-identity:0.1.0-cafe-sso-20261004`且healthy；Space cloud实际镜像为`pi-cafe-space-cloud@sha256:b5744d4c6f04fe73bd1e9585a166b49fcdff04c5d236679bebbe178a3f20c270`，启动于2026-10-09。下面SSO段落中的旧镜像名、Caddy摘要和主站前端路径是历史发布记录，不代表其他会话修改后的当前值。本轮没有改Compose、Caddy、运行凭据、房间密码、审批选择、模型配置或Pi登记，没有重启任何日常服务，源码尚未提交推送。最终浏览器结果见开发交接当前段。
+
+## 历史上线版本：Café统一账号登录
 
 2026-10-05按用户要求直接完成测试环境代码发布，不等待真实账号手动验收。主站SSO单独提交`79ccaaa1ad8259aedfea6630c94bfd014351f717`已推送至`Shirtiny/edel-garden/main`；Space的SSO及本记录同批提交，具体版本查看当前Git记录。运行服务仍是下述已上线版本，提交不会代替线上核验，也不需要为相同字节重复重启。主站其余52个修改文件未夹带、未覆盖，详情见CAFE_SSO.md末尾发布记录。
 

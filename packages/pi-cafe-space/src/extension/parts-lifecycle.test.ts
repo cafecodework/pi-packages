@@ -253,3 +253,29 @@ it('history uses current custom sessionDir and preserves parts; rejects opened I
   expect((await request({ name: 'get_session', sessionId: id })).code).toBe('SESSION_INVALID');
   expect(open).not.toHaveBeenCalled();
 });
+
+it('separates settled outcome from interim errors and preserves it through relay reconnect',async()=>{
+ const h=await harness(),c=await h.connect();expect(c.snapshot.execution).toMatchObject({activity:'idle',outcome:'none',runId:null});
+ h.ctx.isIdle=()=>false;h.fire('agent_start',{});const running=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state');const runId=running.event.execution.runId;
+ const failed={...assistant([{type:'text',text:'temporary failure'}]),stopReason:'error'};h.fire('message_start',{message:failed});h.fire('message_end',{message:failed});h.fire('agent_before_settle',{outcome:'error'});expect((await h.connect()).snapshot.execution).toMatchObject({outcome:'none',runId});
+ h.fire('agent_start',{});expect((await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state')).event.execution.runId).toBe(runId);
+ const recovered={...assistant([{type:'text',text:'recovered'}]),timestamp:2,stopReason:'stop'};h.fire('message_start',{message:recovered});h.fire('message_end',{message:recovered});h.fire('agent_before_settle',{outcome:'completed'});h.ctx.isIdle=()=>true;h.fire('agent_settled',{aborted:false});const completed=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state');expect(completed.event.execution).toMatchObject({activity:'idle',outcome:'completed',runId});expect((await h.connect()).snapshot.execution).toEqual(completed.event.execution);
+ h.ctx.isIdle=()=>false;h.fire('agent_start',{});const next=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state');expect(next.event.execution.runId).not.toBe(runId);h.fire('agent_before_settle',{outcome:'completed'});h.ctx.isIdle=()=>true;h.fire('agent_settled',{aborted:true});expect((await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state')).event.execution.outcome).toBe('aborted');
+ h.fire('session_tree',{});const reset=await c.inbox.next(m=>m.type==='snapshot');expect(reset.snapshot.execution).toMatchObject({runId:null,outcome:'none'});
+});
+
+it('retains prompt kinds and does not reinterpret UI as account authentication',async()=>{
+ const h=await harness(),c=await h.connect();
+ for(const kind of ['confirm','select','input','editor','custom']){
+  h.fire('ui_prompt_start',{kind,title:'test prompt'});const e=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='ui_wait'&&m.event.waiting);expect(e.event.promptKind).toBe(kind);expect((await h.connect()).snapshot.execution).toMatchObject({activity:'waiting',waitKind:kind,outcome:'none'});
+  h.fire('ui_prompt_end',{kind,title:'test prompt'});const idle=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state');expect(idle.event.phase).toBe('idle');expect(idle.event.execution.outcome).toBe('none');
+ }
+});
+
+it('manual compaction reconciles native post-callback idle; automatic compaction retains the run',async()=>{
+ const h=await harness(),c=await h.connect();h.ctx.isIdle=()=>false;h.fire('session_before_compact',{reason:'manual'});expect((await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state')).event.execution.activity).toBe('compacting');h.fire('session_compact',{reason:'manual'});h.ctx.isIdle=()=>true;const idle=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state'&&m.event.phase==='idle');expect(idle.event.execution.outcome).toBe('none');
+ h.ctx.isIdle=()=>false;h.fire('agent_start',{});const start=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state'&&m.event.execution.runId!==null&&m.event.execution.activity==='working');const runId=start.event.execution.runId;
+ h.fire('session_before_compact',{reason:'overflow'});const compact=await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state'&&m.event.execution.activity==='compacting');expect(compact.event.execution.reason).toBe('overflow');h.fire('session_compact_failed',{reason:'overflow',aborted:true,willRetry:true});expect((await h.connect()).snapshot.execution).toMatchObject({runId,activity:'working',outcome:'none'});h.ctx.isIdle=()=>true;h.fire('agent_settled',{aborted:true});expect((await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state'&&m.event.phase==='idle')).event.execution.outcome).toBe('aborted');
+});
+
+it('legacy settlement without outcome evidence is unknown, not success',async()=>{const h=await harness(),c=await h.connect();h.fire('agent_start',{});await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state');h.fire('agent_settled',{});expect((await c.inbox.next(m=>m.type==='event'&&m.event.kind==='session_state')).event.execution.outcome).toBe('unknown');});

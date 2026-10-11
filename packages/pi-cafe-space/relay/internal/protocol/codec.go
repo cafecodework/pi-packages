@@ -125,7 +125,7 @@ func array(v any, max int, check func(any) bool) bool {
 }
 func validSnapshot(v any) bool {
 	o, ok := v.(Object)
-	return ok && o["protocolVersion"] == float64(1) && text(o["streamId"], 128, false) && text(o["sessionId"], 256, false) && nullable(o, "sessionName", 256) && text(o["cwd"], 16384, true) && nullable(o, "activeLeafId", 128) && hasModel(o, "model") && thinking(o["thinkingLevel"]) && phase(o["phase"]) && boolean(o["hasPendingMessages"]) && optional(o, "sessionControl", boolean) && optional(o, "inputAssist", boolean) && array(o["messages"], 1000, validMessage) && optional(o, "historyTruncated", boolean) && array(o["tools"], 500, validTool) && integer(o["lastEventSeq"], MaxEventSequence)
+	return ok && o["protocolVersion"] == float64(1) && text(o["streamId"], 128, false) && text(o["sessionId"], 256, false) && nullable(o, "sessionName", 256) && text(o["cwd"], 16384, true) && nullable(o, "activeLeafId", 128) && hasModel(o, "model") && thinking(o["thinkingLevel"]) && phase(o["phase"]) && boolean(o["hasPendingMessages"]) && optional(o, "sessionControl", boolean) && optional(o, "inputAssist", boolean) && optional(o,"execution",ValidExecution) && array(o["messages"], 1000, validMessage) && optional(o, "historyTruncated", boolean) && array(o["tools"], 500, validTool) && integer(o["lastEventSeq"], MaxEventSequence)
 }
 func validHost(v any) bool {
 	o, ok := v.(Object)
@@ -167,7 +167,7 @@ func validEvent(v any) bool {
 	}
 	switch o["kind"] {
 	case "session_state":
-		return phase(o["phase"]) && boolean(o["hasPendingMessages"])
+		return phase(o["phase"]) && boolean(o["hasPendingMessages"]) && optional(o,"execution",ValidExecution)
 	case "message_started", "message_finished":
 		return validMessage(o["message"])
 	case "message_delta":
@@ -181,7 +181,7 @@ func validEvent(v any) bool {
 	case "thinking_changed":
 		return thinking(o["level"])
 	case "ui_wait":
-		return boolean(o["waiting"]) && nullable(o, "title", 512)
+		return boolean(o["waiting"]) && nullable(o, "title", 512) && optional(o,"promptKind",promptKind)
 	case "notice":
 		return one(o["level"], "info", "warning", "error") && text(o["message"], 16384, false)
 	}
@@ -232,7 +232,7 @@ func canonicalTool(o Object) Object {
 func canonicalEvent(o Object) Object {
 	switch o["kind"] {
 	case "session_state":
-		return selectFields(o, "kind", "phase", "hasPendingMessages")
+		out:=selectFields(o,"kind","phase","hasPendingMessages");if state,ok:=o["execution"].(Object);ok{out["execution"]=CanonicalExecution(state)};return out
 	case "message_started", "message_finished":
 		return Object{"kind": o["kind"], "message": canonicalMessage(o["message"].(Object))}
 	case "message_delta":
@@ -246,7 +246,7 @@ func canonicalEvent(o Object) Object {
 	case "thinking_changed":
 		return selectFields(o, "kind", "level")
 	case "ui_wait":
-		return selectFields(o, "kind", "waiting", "title")
+		return selectFields(o, "kind", "waiting", "title", "promptKind")
 	case "notice":
 		return selectFields(o, "kind", "level", "message")
 	}
@@ -255,6 +255,7 @@ func canonicalEvent(o Object) Object {
 func canonicalSnapshot(o Object) Object {
 	out := selectFields(o, "protocolVersion", "streamId", "sessionId", "sessionName", "cwd", "activeLeafId", "thinkingLevel", "phase", "hasPendingMessages", "sessionControl", "inputAssist", "lastEventSeq")
 	out["model"] = canonicalModel(o["model"])
+	if state,ok:=o["execution"].(Object);ok{out["execution"]=CanonicalExecution(state)}
 	out["historyTruncated"] = o["historyTruncated"] == true
 	messages := []any{}
 	for _, v := range o["messages"].([]any) {
